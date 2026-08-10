@@ -53,8 +53,9 @@ describe("database-backed discover, ranking, and moderation integration", () => 
     expect(rankedIds).toContain(followed.id);
     expect(rankedIds).not.toContain(muted.id);
     expect(rankedIds.filter((id) => aPosts.some((post) => post.id === id))).toHaveLength(2);
-    const secondForYouPage = await listLatestPosts(viewer.id, 4, undefined, "for_you");
-    expect(secondForYouPage.data.map((post) => String(post.id))).not.toEqual(expect.arrayContaining(rankedIds));
+    // For You is persistent like X/Threads: reading a post does not remove it.
+    const refreshedForYou = await listLatestPosts(viewer.id, 4, undefined, "for_you");
+    expect(refreshedForYou.data.map((post) => String(post.id))).toEqual(rankedIds);
 
     const report = await createReport(viewer.id, { target_type: "post", target_id: followed.id, reason: "spam", details: "Integration moderation case" });
     await getDb().insert(userRoles).values({ userId: authorA.id, role: "moderator" });
