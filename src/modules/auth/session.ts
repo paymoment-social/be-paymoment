@@ -1,51 +1,61 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { getCookie, setCookie } from "hono/cookie";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Context } from "hono";
 import { config } from "../../config";
 
 export const SESSION_COOKIE = "paymoment_session";
 export const STATE_COOKIE = "paymoment_oauth_state";
-export const VERIFIER_COOKIE = "paymoment_oauth_verifier";
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
-export type AuthUser = { id: string; email: string; name: string; avatar?: string; verified: boolean };
+const baseCookie = () => ({
+  httpOnly: true,
+  sameSite: "Lax" as const,
+  secure: config().isProduction,
+  path: "/",
+  ...(config().isProduction && config().authCookieDomain ? { domain: config().authCookieDomain } : {}),
+});
 
-function encode(value: string) { return Buffer.from(value).toString("base64url"); }
-function decode(value: string) { return Buffer.from(value, "base64url").toString("utf8"); }
-function signature(value: string) { return createHmac("sha256", config().authSecret).update(value).digest("base64url"); }
-
-export function createSession(user: AuthUser) {
-  const encoded = encode(JSON.stringify({ ...user, expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 7 }));
-  return `${encoded}.${signature(encoded)}`;
+export function randomToken(bytes = 32) {
+  return randomBytes(bytes).toString("base64url");
 }
 
-export function readSession(value?: string): AuthUser | null {
-  try {
-    if (!value) return null;
-    const [encoded, received] = value.split(".");
-    const expected = signature(encoded);
-    if (!received || received.length !== expected.length || !timingSafeEqual(Buffer.from(received), Buffer.from(expected))) return null;
-    const payload = JSON.parse(decode(encoded)) as AuthUser & { expiresAt: number };
-    return payload.expiresAt > Date.now() ? payload : null;
-  } catch { return null; }
+export function hashToken(value: string) {
+  return createHash("sha256").update(value).digest("base64url");
 }
 
-const baseCookie = (secure: boolean) => ({ httpOnly: true, sameSite: "Lax" as const, secure, path: "/" });
-
-export function setOauthCookies(c: Context, state: string, verifier: string) {
-  const options = { ...baseCookie(config().isProduction), maxAge: 600 };
-  setCookie(c, STATE_COOKIE, state, options);
-  setCookie(c, VERIFIER_COOKIE, verifier, options);
+export function hashPrivateValue(value: string) {
+  return createHmac("sha256", config().authSecret).update(value).digest("base64url");
 }
 
-export function setSessionCookie(c: Context, user: AuthUser) {
-  setCookie(c, SESSION_COOKIE, createSession(user), { ...baseCookie(config().isProduction), maxAge: 60 * 60 * 24 * 7 });
+export function setOauthStateCookie(c: Context, state: string) {
+  setCookie(c, STATE_COOKIE, state, { ...baseCookie(), maxAge: 600 });
+}
+
+export function oauthStateCookie(c: Context) {
+  return getCookie(c, STATE_COOKIE);
+}
+
+export function clearOauthStateCookie(c: Context) {
+  deleteCookie(c, STATE_COOKIE, baseCookie());
+}
+
+export function setSessionCookie(c: Context, rawToken: string) {
+  setCookie(c, SESSION_COOKIE, rawToken, { ...baseCookie(), maxAge: SESSION_TTL_SECONDS });
+}
+
+export function sessionCookie(c: Context) {
+  return getCookie(c, SESSION_COOKIE);
+}
+
+export function clearSessionCookie(c: Context) {
+  deleteCookie(c, SESSION_COOKIE, baseCookie());
 }
 
 export function clearAuthCookies(c: Context) {
-  for (const name of [SESSION_COOKIE, STATE_COOKIE, VERIFIER_COOKIE]) setCookie(c, name, "", { ...baseCookie(config().isProduction), maxAge: 0 });
+  clearSessionCookie(c);
+  clearOauthStateCookie(c);
 }
 
-export function createVerifier() { return randomBytes(32).toString("base64url"); }
-export function createState() { return randomBytes(24).toString("base64url"); }
+export function createVerifier() { return randomToken(32); }
+export function createState() { return randomToken(24); }
 export function challenge(verifier: string) { return createHash("sha256").update(verifier).digest("base64url"); }
-export function sessionFrom(c: Context) { return readSession(getCookie(c, SESSION_COOKIE)); }

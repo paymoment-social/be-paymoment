@@ -1,0 +1,1 @@
+ALTER TYPE "public"."relationship_status" ADD VALUE 'pending' BEFORE 'active';

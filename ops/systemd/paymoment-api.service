@@ -1,0 +1,26 @@
+[Unit]
+Description=PayMoment API and MCP server
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=paymoment
+Group=paymoment
+WorkingDirectory=/opt/paymoment/current/be-paymonent
+EnvironmentFile=/etc/paymoment/api.env
+ExecStart=/usr/local/bin/bun src/index.ts
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/paymoment /var/lib/paymoment
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

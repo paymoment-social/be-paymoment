@@ -1,0 +1,25 @@
+[Unit]
+Description=PayMoment Next.js web application
+After=network-online.target paymoment-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=paymoment
+Group=paymoment
+WorkingDirectory=/opt/paymoment/current/fe-paymoment
+EnvironmentFile=/etc/paymoment/web.env
+ExecStart=/usr/local/bin/pnpm start --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/paymoment
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,8 +1,19 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
-import { config } from "../../config";
-import { challenge, clearAuthCookies, createState, createVerifier, setOauthCookies, setSessionCookie, sessionFrom, STATE_COOKIE, VERIFIER_COOKIE } from "./session";
-import { getCookie } from "hono/cookie";
+import { assertAuthConfigured, config } from "../../config";
+import { success } from "../../lib/responses";
+import { AppError } from "../../lib/errors";
+import { enforceRateLimit } from "../../lib/rate-limit";
+import { consumeOauthAttempt, createOauthAttempt } from "./oauth-attempt";
+import {
+  clearAuthCookies,
+  clearOauthStateCookie,
+  hashPrivateValue,
+  oauthStateCookie,
+  setOauthStateCookie,
+  setSessionCookie,
+} from "./session";
+import { currentSession, establishGoogleSession, revokeCurrentSession } from "./auth.service";
 
 const auth = new Hono();
 const googleUserInfo = "https://openidconnect.googleapis.com/v1/userinfo";
@@ -11,47 +22,97 @@ function errorRedirect(c: Context, reason: string) {
   return c.redirect(`${config().frontendUrl}/login?error=${encodeURIComponent(reason)}`);
 }
 
-auth.get("/google", (c) => {
-  const state = createState();
-  const verifier = createVerifier();
-  const params = new URLSearchParams({ client_id: config().googleClientId, redirect_uri: config().redirectUri, response_type: "code", scope: "openid email profile", state, code_challenge: challenge(verifier), code_challenge_method: "S256", access_type: "online", prompt: "select_account" });
-  setOauthCookies(c, state, verifier);
+export function oauthIpIdentity(c: Context) {
+  const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
+  return hashPrivateValue(forwarded || c.req.header("cf-connecting-ip") || c.req.header("x-real-ip") || "unknown");
+}
+
+auth.get("/google", async (c) => {
+  await enforceRateLimit(c, "auth.google.start", oauthIpIdentity(c), 30, 60 * 60);
+  const authConfig = assertAuthConfigured();
+  const attempt = await createOauthAttempt(c.req.query("next"));
+  const params = new URLSearchParams({
+    client_id: authConfig.googleClientId,
+    redirect_uri: authConfig.redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    state: attempt.state,
+    code_challenge: attempt.codeChallenge,
+    code_challenge_method: "S256",
+    access_type: "online",
+    prompt: "select_account",
+  });
+  setOauthStateCookie(c, attempt.state);
   return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 auth.get("/google/callback", async (c) => {
+  await enforceRateLimit(c, "auth.google.callback", oauthIpIdentity(c), 60, 60 * 60);
+  const authConfig = assertAuthConfigured();
   const code = c.req.query("code");
   const state = c.req.query("state");
-  const storedState = getCookie(c, STATE_COOKIE);
-  const verifier = getCookie(c, VERIFIER_COOKIE);
-  if (c.req.query("error")) return errorRedirect(c, "google_cancelled");
-  if (!code || !state || !storedState || state !== storedState || !verifier) return errorRedirect(c, "invalid_oauth_state");
+  const storedState = oauthStateCookie(c);
+  clearOauthStateCookie(c);
+  if (c.req.query("error")) return errorRedirect(c, "google_sign_in_cancelled");
+  if (!code || !state || !storedState || state !== storedState) return errorRedirect(c, "invalid_oauth_state");
+
+  const attempt = await consumeOauthAttempt(state);
+  if (!attempt) return errorRedirect(c, "expired_oauth_attempt");
 
   try {
-    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: config().googleClientId, client_secret: config().googleClientSecret, redirect_uri: config().redirectUri, grant_type: "authorization_code", code_verifier: verifier }) });
-    if (!tokenResponse.ok) return errorRedirect(c, "token_exchange_failed");
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: authConfig.googleClientId,
+        client_secret: authConfig.googleClientSecret,
+        redirect_uri: authConfig.redirectUri,
+        grant_type: "authorization_code",
+        code_verifier: attempt.verifier,
+      }),
+    });
+    if (!tokenResponse.ok) return errorRedirect(c, "google_token_exchange_failed");
     const tokens = await tokenResponse.json() as { access_token?: string };
-    if (!tokens.access_token) return errorRedirect(c, "missing_access_token");
+    if (!tokens.access_token) return errorRedirect(c, "google_access_token_missing");
+
     const profileResponse = await fetch(googleUserInfo, { headers: { Authorization: `Bearer ${tokens.access_token}` } });
-    if (!profileResponse.ok) return errorRedirect(c, "profile_fetch_failed");
-    const profile = await profileResponse.json() as { sub?: string; email?: string; name?: string; picture?: string; email_verified?: boolean };
-    if (!profile.sub || !profile.email) return errorRedirect(c, "missing_google_profile");
-    setSessionCookie(c, { id: profile.sub, email: profile.email, name: profile.name ?? profile.email.split("@")[0], avatar: profile.picture, verified: Boolean(profile.email_verified) });
-    return c.redirect(config().frontendUrl);
+    if (!profileResponse.ok) return errorRedirect(c, "google_profile_fetch_failed");
+    const profile = await profileResponse.json() as {
+      sub?: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+      email_verified?: boolean;
+    };
+    if (!profile.sub || !profile.email) return errorRedirect(c, "google_profile_incomplete");
+
+    const rawSession = await establishGoogleSession(c, {
+      sub: profile.sub,
+      email: profile.email,
+      emailVerified: Boolean(profile.email_verified),
+      name: profile.name ?? profile.email.split("@")[0] ?? "PayMoment user",
+      picture: profile.picture ?? null,
+    });
+    setSessionCookie(c, rawSession);
+    return c.redirect(new URL(attempt.returnPath, authConfig.frontendUrl).toString());
   } catch (error) {
-    console.error("Google OAuth callback failed", error);
-    return errorRedirect(c, "oauth_failed");
+    if (error instanceof AppError && error.code === "FORBIDDEN") return errorRedirect(c, "verified_google_email_required");
+    console.error(JSON.stringify({ level: "error", message: "Google OAuth callback failed.", request_id: c.get("requestId") }));
+    return errorRedirect(c, "google_sign_in_failed");
   }
 });
 
-auth.get("/session", (c) => {
-  const user = sessionFrom(c);
-  return c.json({ user }, user ? 200 : 401);
+auth.get("/session", async (c) => {
+  const session = await currentSession(c);
+  if (!session) throw new AppError(401, "UNAUTHENTICATED", "Authentication is required.");
+  return success(c, { user: session.user });
 });
 
-auth.post("/logout", (c) => {
+auth.post("/logout", async (c) => {
+  await revokeCurrentSession(c);
   clearAuthCookies(c);
-  return c.json({ ok: true });
+  return success(c, { logged_out: true as const });
 });
 
 export { auth };
