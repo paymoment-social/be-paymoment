@@ -54,7 +54,7 @@ export async function claimMomentReward(userId: string, postId: string) {
     await tx.insert(rewardClaims).values({ userId, postId, ledgerEntryId: entry!.id, claimKey });
     return { ledger_entry_id: entry!.id, claimed: true, balance };
   });
-  if (result.claimed) await createNotification({ userId, type: "reward", postId, dedupeKey: `reward:${result.ledger_entry_id}`, payload: { amount: 10, action: "claimed" } });
+  if (result.claimed) await createNotification({ userId, type: "reward", postId, dedupeKey: `reward:${result.ledger_entry_id}`, payload: { amount: 10, action: "earned", source: "moment", label: "your Moment" } });
   return result;
 }
 export async function redeemCatalogReward(userId: string, catalogId: string) {
@@ -92,6 +92,9 @@ export async function redeemCatalogReward(userId: string, catalogId: string) {
     await tx.insert(rewardClaims).values({ userId, catalogItemId: item.id, ledgerEntryId: entry!.id, claimKey });
     return { ledger_entry_id: entry!.id, redeemed: true, balance: next };
   });
-  if (result.redeemed) await createNotification({ userId, type: "reward", dedupeKey: `reward:${result.ledger_entry_id}`, payload: { catalog_id: catalogId, action: "redeemed" } });
+  if (result.redeemed) {
+    const amount = "granted_points" in result && typeof result.granted_points === "number" ? result.granted_points : undefined;
+    await createNotification({ userId, type: "reward", dedupeKey: `reward:${result.ledger_entry_id}`, payload: { catalog_id: catalogId, action: amount ? "earned" : "redeemed", amount, source: amount ? "campaign" : "reward", label: amount ? "the early access campaign" : "a reward" } });
+  }
   return result;
 }

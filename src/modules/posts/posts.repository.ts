@@ -163,7 +163,6 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     or(eq(posts.authorId, viewerId), eq(posts.visibility, "public"), and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`)),
     sql`not exists (select 1 from ${userBlocks} b where (b.blocker_id = ${viewerId} and b.blocked_id = ${posts.authorId}) or (b.blocker_id = ${posts.authorId} and b.blocked_id = ${viewerId}))`,
     sql`not exists (select 1 from ${userMutes} m where m.muter_id = ${viewerId} and m.muted_id = ${posts.authorId} and (m.expires_at is null or m.expires_at > now()))`,
-    mode === "for_you" ? sql`not exists (select 1 from ${feedImpressions} i where i.user_id = ${viewerId} and i.post_id = ${posts.id} and i.feed_mode = 'for_you' and i.created_at > now() - interval '12 hours')` : undefined,
     mode === "latest" && cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
     mode !== "latest" && cursor?.score !== undefined ? or(lt(score, cursor.score), and(eq(score, cursor.score), or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))))) : undefined,
   )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(candidateLimit);
