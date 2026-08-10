@@ -61,6 +61,10 @@ export const listContentQuerySchema = z.object({
   parent_id: uuidSchema.optional(),
 });
 
+export const feedUpdatesQuerySchema = z.object({
+  since: z.iso.datetime(),
+});
+
 export const listBookmarksQuerySchema = listContentQuerySchema.omit({ parent_id: true }).extend({
   filter: z.enum(["all", "media", "text"]).default("all"),
 });

@@ -22,6 +22,7 @@ import {
   replyMedia,
   replyMentions,
   reposts,
+  rewardClaims,
   userBlocks,
   userMutes,
   users,
@@ -115,7 +116,7 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
   const post = await findPost(id);
   if (!post || !await canView(post, viewerId)) return null;
   const db = getDb();
-  const [author, media, articleRows, pollRows, optionRows, stateRows, voteRows] = await Promise.all([
+  const [author, media, articleRows, pollRows, optionRows, stateRows, voteRows, rewardRows] = await Promise.all([
     getUserProfile(post.authorId, viewerId),
     db.select({ id: mediaAssets.id, url: mediaAssets.gatewayUrl, mime_type: mediaAssets.mimeType, alt_text: mediaAssets.altText, position: postMedia.position }).from(postMedia).innerJoin(mediaAssets, eq(mediaAssets.id, postMedia.mediaAssetId)).where(eq(postMedia.postId, post.id)).orderBy(postMedia.position),
     db.select().from(articles).where(eq(articles.postId, post.id)).limit(1),
@@ -127,6 +128,7 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
       db.select({ id: reposts.postId }).from(reposts).where(and(eq(reposts.postId, post.id), eq(reposts.userId, viewerId))).limit(1),
     ]),
     db.select({ optionId: pollVotes.optionId }).from(pollVotes).where(and(eq(pollVotes.pollId, post.id), eq(pollVotes.userId, viewerId))).limit(1),
+    db.select({ id: rewardClaims.id }).from(rewardClaims).where(and(eq(rewardClaims.userId, viewerId), eq(rewardClaims.claimKey, `moment:${post.id}`))).limit(1),
   ]);
   const article = articleRows[0];
   const poll = pollRows[0];
@@ -141,7 +143,7 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
     author,
     media,
     counts: { likes: post.likeCount, replies: post.replyCount, reposts: post.repostCount, bookmarks: post.bookmarkCount, views: post.viewCount },
-    viewer: { liked: stateRows[0].length > 0, bookmarked: stateRows[1].length > 0, reposted: stateRows[2].length > 0 },
+    viewer: { liked: stateRows[0].length > 0, bookmarked: stateRows[1].length > 0, reposted: stateRows[2].length > 0, reward_claimed: rewardRows.length > 0 },
     article: article ? { title: article.title, eyebrow: article.eyebrow, description: article.description, content_html: article.contentHtml, banner_media_id: article.bannerMediaId, banner_color: article.bannerColor, banner_position: article.bannerPosition, status: article.status, draft_version: article.draftVersion, published_at: article.publishedAt?.toISOString() ?? null } : null,
     poll: poll ? { question: poll.question, status: poll.status, voter_visibility: poll.voterVisibility, allow_vote_change: poll.allowVoteChange, total_votes: poll.totalVotes, ends_at: poll.endsAt?.toISOString() ?? null, viewer_option_id: voteRows[0]?.optionId ?? null, options: optionRows.map((option) => ({ id: option.id, label: option.label, position: option.position, vote_count: option.voteCount })) } : null,
     quoted_post: includeQuote && post.quotedPostId ? await hydratePost(post.quotedPostId, viewerId, false) : null,
@@ -179,6 +181,25 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
   }
   const last = page.at(-1);
   return { data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)), hasMore: rows.length === candidateLimit, nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score) } : {}) }) : null };
+}
+
+export async function countNewFeedPosts(viewerId: string, since: Date) {
+  const [row] = await getDb().select({ value: count() }).from(posts).where(and(
+    eq(posts.status, "published"),
+    isNull(posts.deletedAt),
+    gt(posts.publishedAt, since),
+    or(
+      eq(posts.authorId, viewerId),
+      eq(posts.visibility, "public"),
+      and(
+        eq(posts.visibility, "followers"),
+        sql`exists (select 1 from follows f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`,
+      ),
+    ),
+    sql`not exists (select 1 from user_blocks b where (b.blocker_id = ${viewerId} and b.blocked_id = ${posts.authorId}) or (b.blocker_id = ${posts.authorId} and b.blocked_id = ${viewerId}))`,
+    sql`not exists (select 1 from user_mutes m where m.muter_id = ${viewerId} and m.muted_id = ${posts.authorId} and (m.expires_at is null or m.expires_at > now()))`,
+  ));
+  return Number(row?.value ?? 0);
 }
 
 export async function listBookmarkedPosts(viewerId: string, filter: "all" | "media" | "text", limit: number, cursorValue?: string) {

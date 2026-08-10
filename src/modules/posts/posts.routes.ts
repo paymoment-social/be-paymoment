@@ -8,6 +8,7 @@ import {
   createArticleSchema,
   createPostSchema,
   createReplySchema,
+  feedUpdatesQuerySchema,
   listContentQuerySchema,
   listBookmarksQuerySchema,
   shareSchema,
@@ -31,6 +32,7 @@ import {
   editPostReply,
   getMoment,
   getLatestFeed,
+  getNewFeedPostCount,
   getBookmarks,
   getLikedPosts,
   getArticlePost,
@@ -59,6 +61,12 @@ feedRoutes.get("/", async (c) => {
   const query = parseQuery(c, listContentQuerySchema.omit({ parent_id: true }).extend({ mode: z.enum(["latest", "top", "for_you"]).default("latest") }));
   const page = await getLatestFeed(session.user.id, query.limit, query.cursor, query.mode);
   return paginated(c, page.data, page.nextCursor, page.hasMore);
+});
+
+feedRoutes.get("/updates", async (c) => {
+  const session = await requireSession(c);
+  const query = parseQuery(c, feedUpdatesQuerySchema);
+  return success(c, { count: await getNewFeedPostCount(session.user.id, query.since) });
 });
 
 bookmarksRoutes.get("/", async (c) => {

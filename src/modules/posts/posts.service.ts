@@ -16,6 +16,7 @@ import {
   hydratePost,
   listPollVoters,
   listLatestPosts,
+  countNewFeedPosts,
   listBookmarkedPosts,
   listLikedPosts,
   listReplies,
@@ -85,6 +86,10 @@ export async function getMoment(userId: string, id: string) {
 
 export async function getLatestFeed(userId: string, limit: number, cursor?: string, mode: "latest" | "top" | "for_you" = "latest") {
   return listLatestPosts(userId, limit, cursor, mode);
+}
+
+export function getNewFeedPostCount(userId: string, since: string) {
+  return countNewFeedPosts(userId, new Date(since));
 }
 
 export function getBookmarks(userId: string, filter: "all" | "media" | "text", limit: number, cursor?: string) {
