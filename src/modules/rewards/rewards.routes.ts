@@ -4,8 +4,10 @@ import { AppError } from "../../lib/errors";
 import { enforceRateLimit } from "../../lib/rate-limit";
 import { beginIdempotentRequest, completeIdempotentRequest, releaseIdempotentRequest } from "../../integrations/redis/idempotency";
 import { success } from "../../lib/responses";
+import { parseJson } from "../../lib/validation";
 import { requireSession } from "../auth/auth.service";
-import { claimMomentReward, getRewardBalance, listRewardCatalog, listRewardLeaderboard, listRewardLedger, redeemCatalogReward } from "./rewards.repository";
+import { rewardCampaignTopUpSchema } from "./rewards.schemas";
+import { claimMomentReward, getRewardBalance, listRewardCatalog, listRewardLeaderboard, listRewardLedger, redeemCatalogReward, requireRewardAdmin, topUpRewardCampaign } from "./rewards.repository";
 
 export const rewardsRoutes = new Hono();
 
@@ -29,7 +31,8 @@ async function idempotentReward<T>(c: Context, userId: string, scope: string, op
 }
 rewardsRoutes.get("/balance", async (c) => { const session = await requireSession(c); return success(c, { balance: await getRewardBalance(session.user.id) }); });
 rewardsRoutes.get("/ledger", async (c) => { const session = await requireSession(c); return success(c, { entries: await listRewardLedger(session.user.id) }); });
-rewardsRoutes.get("/catalog", async (c) => { await requireSession(c); return success(c, { items: await listRewardCatalog() }); });
+rewardsRoutes.get("/catalog", async (c) => { const session = await requireSession(c); return success(c, { items: await listRewardCatalog(session.user.id) }); });
 rewardsRoutes.get("/leaderboard", async (c) => { await requireSession(c); return success(c, { leaders: await listRewardLeaderboard() }); });
+rewardsRoutes.post("/campaigns/:slug/top-up", async (c) => { const session = await requireSession(c); await requireRewardAdmin(session.user.id); const input = await parseJson(c, rewardCampaignTopUpSchema); return success(c, { campaign: await topUpRewardCampaign(session.user.id, c.req.param("slug"), input.amount, c.get("requestId")) }); });
 rewardsRoutes.post("/moments/:id/claim", async (c) => { const session = await requireSession(c); await enforceRateLimit(c, "rewards.claim", session.user.id, 30, 60 * 60); return success(c, await idempotentReward(c, session.user.id, "rewards.claim", () => claimMomentReward(session.user.id, c.req.param("id")))); });
 rewardsRoutes.post("/catalog/:id/redeem", async (c) => { const session = await requireSession(c); await enforceRateLimit(c, "rewards.redeem", session.user.id, 30, 60 * 60); return success(c, await idempotentReward(c, session.user.id, "rewards.redeem", () => redeemCatalogReward(session.user.id, c.req.param("id")))); });

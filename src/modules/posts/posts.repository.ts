@@ -165,13 +165,7 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     mode === "latest" && cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
     mode !== "latest" && cursor?.score !== undefined ? or(lt(score, cursor.score), and(eq(score, cursor.score), or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))))) : undefined,
   )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(candidateLimit);
-  const authorOccurrences = new Map<string, number>();
-  const page = rows.filter((row) => {
-    const count = authorOccurrences.get(row.authorId) ?? 0;
-    if (count >= 2) return false;
-    authorOccurrences.set(row.authorId, count + 1);
-    return true;
-  }).slice(0, limit);
+  const page = rows.slice(0, limit);
   const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
   if (page.length) {
     await getDb().insert(feedImpressions).values(page.map((row) => ({
@@ -180,7 +174,7 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
       feedMode: mode,
       rankingVersion: "v2",
       score: mode === "latest" ? null : Math.round(Number(row.score)),
-      context: { cursor: Boolean(cursorValue), diversity_limit_per_author: 2, signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, following_boost: mode === "for_you" ? 20 : 0 } },
+      context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, following_boost: mode === "for_you" ? 20 : 0 } },
     })));
   }
   const last = page.at(-1);

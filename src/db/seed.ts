@@ -52,6 +52,15 @@ const catalog = [
     costPoints: 2_500,
     inventory: null,
   },
+  {
+    id: "20000000-0000-4000-8000-000000000003",
+    slug: "early-access-1000",
+    title: "Early PayMoment Verified",
+    description: "Claim 10,000 Box and get verified. Limited to the first 1,000 members.",
+    costPoints: 0,
+    inventory: 1_000,
+    metadata: { campaign: "early-access-1000", grant_points: 10_000, verify: true, campaign_capacity: 1_000 },
+  },
 ] as const;
 
 const db = getDb();

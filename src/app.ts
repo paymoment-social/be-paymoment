@@ -27,7 +27,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   const readiness = dependencies.readiness ?? checkReadiness;
   app.use("*", requestIdMiddleware);
   app.use("/api/*", cors({
-    origin: config().frontendUrl,
+    origin: (origin) => config().frontendUrls.includes(origin) ? origin : "",
     credentials: true,
     allowHeaders: ["Content-Type", "Idempotency-Key", "If-Match", "X-Request-Id"],
     exposeHeaders: ["X-Request-Id", "Retry-After"],

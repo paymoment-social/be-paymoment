@@ -9,7 +9,7 @@ export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 const baseCookie = () => ({
   httpOnly: true,
-  sameSite: "Lax" as const,
+  sameSite: config().authCookieSameSite === "none" ? "None" as const : "Lax" as const,
   secure: config().isProduction,
   path: "/",
   ...(config().isProduction && config().authCookieDomain ? { domain: config().authCookieDomain } : {}),

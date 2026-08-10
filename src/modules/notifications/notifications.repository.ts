@@ -21,7 +21,7 @@ export async function createNotification(input: { userId: string; actorId?: stri
 
 export async function listNotifications(userId: string, filter: string, limit: number, cursorValue?: string) {
   const cursor = decodeCursor(cursorValue);
-  const type = filter === "likes" ? "like" : filter === "replies" ? "reply" : filter === "mentions" ? "mention" : filter === "follows" ? "follow" : filter === "rewards" ? "reward" : undefined;
+  const type = filter === "likes" ? "like" : filter === "replies" ? "reply" : filter === "mentions" ? "mention" : filter === "follows" ? "follow" : filter === "rewards" ? "reward" : filter === "reposts" ? "repost" : undefined;
   const rows = await getDb().select().from(notifications).where(and(eq(notifications.userId, userId), filter === "unread" ? isNull(notifications.readAt) : undefined, type ? eq(notifications.type, type) : undefined, cursor ? or(lt(notifications.createdAt, new Date(cursor.created_at)), and(eq(notifications.createdAt, new Date(cursor.created_at)), lt(notifications.id, cursor.id))) : undefined)).orderBy(desc(notifications.createdAt), desc(notifications.id)).limit(limit + 1);
   const page = rows.slice(0, limit);
   const data = await Promise.all(page.map(async (row) => ({ id: row.id, type: row.type, actor: row.actorId ? await getUserProfile(row.actorId, userId) : null, post_id: row.postId, reply_id: row.replyId, conversation_id: row.conversationId, message_id: row.messageId, payload: row.payload, read_at: row.readAt?.toISOString() ?? null, created_at: row.createdAt.toISOString() })));

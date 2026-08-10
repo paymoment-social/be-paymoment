@@ -1,4 +1,7 @@
 export function config() {
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:3000";
+  const frontendUrls = Array.from(new Set([frontendUrl, ...(process.env.FRONTEND_URLS ?? "").split(",").map((value) => value.trim()).filter(Boolean)]));
+  const cookieSameSite = process.env.AUTH_COOKIE_SAMESITE === "none" ? "none" : "lax";
   return {
     databaseUrl: process.env.DATABASE_URL ?? "",
     redisUrl: process.env.REDIS_URL ?? "",
@@ -6,7 +9,9 @@ export function config() {
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
     authSecret: process.env.AUTH_SECRET ?? "",
     authCookieDomain: process.env.AUTH_COOKIE_DOMAIN ?? "",
-    frontendUrl: process.env.FRONTEND_URL ?? "http://localhost:3000",
+    frontendUrl,
+    frontendUrls,
+    authCookieSameSite: cookieSameSite as "lax" | "none",
     redirectUri: process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:8787/api/v1/auth/google/callback",
     encryptionKey: process.env.ENCRYPTION_KEY ?? "",
     pinataJwt: process.env.PINATA_JWT ?? "",

@@ -17,7 +17,7 @@ mcpConnectionRoutes.get("/connections", async (c) => {
     grantedAt: mcpConsents.grantedAt,
     updatedAt: mcpConsents.updatedAt,
     revokedAt: mcpConsents.revokedAt,
-  }).from(mcpConsents).innerJoin(mcpClients, eq(mcpClients.id, mcpConsents.clientId)).where(eq(mcpConsents.userId, session.user.id));
+  }).from(mcpConsents).innerJoin(mcpClients, eq(mcpClients.id, mcpConsents.clientId)).where(and(eq(mcpConsents.userId, session.user.id), isNull(mcpConsents.revokedAt)));
 
   const connections = await Promise.all(rows.map(async (row) => {
     const [token] = await getDb().select({ lastUsedAt: mcpAccessTokens.lastUsedAt, expiresAt: mcpAccessTokens.expiresAt }).from(mcpAccessTokens).where(and(eq(mcpAccessTokens.userId, session.user.id), eq(mcpAccessTokens.clientId, row.id), isNull(mcpAccessTokens.revokedAt), gt(mcpAccessTokens.expiresAt, new Date()))).orderBy(mcpAccessTokens.createdAt).limit(1);
