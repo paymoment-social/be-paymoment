@@ -168,14 +168,17 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
   )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(candidateLimit);
   const page = rows.slice(0, limit);
   const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
-  if (page.length) {
+  // For You is a persistent ranked feed, like X/Threads. Reading a post must
+  // never make it disappear from that feed, so do not persist a seen signal
+  // for this mode. Impression tracking remains available for other feed modes.
+  if (page.length && mode !== "for_you") {
     await getDb().insert(feedImpressions).values(page.map((row) => ({
       userId: viewerId,
       postId: row.id,
       feedMode: mode,
       rankingVersion: "v2",
       score: mode === "latest" ? null : Math.round(Number(row.score)),
-      context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, following_boost: mode === "for_you" ? 20 : 0 } },
+      context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, following_boost: 0 } },
     })));
   }
   const last = page.at(-1);
