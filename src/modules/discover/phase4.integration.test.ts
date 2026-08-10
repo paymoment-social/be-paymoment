@@ -32,7 +32,7 @@ describe("database-backed discover, ranking, and moderation integration", () => 
     }
   });
 
-  run("enforces search visibility, ranking diversity, impression suppression, and moderated reports", async () => {
+  run("enforces search visibility, ranking diversity, persistent feed impressions, and moderated reports", async () => {
     const [viewer, authorA, authorB, mutedAuthor] = await Promise.all([makeUser(0), makeUser(1), makeUser(2), makeUser(3)]);
     await setFollowRelationship(viewer.id, authorB.id);
     await muteUser(viewer.id, mutedAuthor.id, null);

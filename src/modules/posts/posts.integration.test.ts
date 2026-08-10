@@ -25,6 +25,7 @@ import {
   updatePost,
   votePoll,
 } from "./posts.repository";
+import { createPostReply } from "./posts.service";
 
 const run = process.env.RUN_DB_INTEGRATION === "1" ? test : test.skip;
 const emails = ["phase3-a@paymoment.test", "phase3-b@paymoment.test"];
@@ -73,7 +74,8 @@ describe("database-backed content integration", () => {
     expect((await recordView(second.id, moment.id, "phase3-viewer")).recorded).toBeFalse();
     expect((await recordShare(second.id, moment.id, "copy")).recorded).toBeTrue();
 
-    const parent = await createReply(second.id, moment.id, { body: "Parent reply", media_asset_ids: [] });
+    const parent = await createPostReply(second.id, moment.id, { body: "Parent reply", media_asset_ids: [] });
+    expect((parent.author as { id: string }).id).toBe(second.id);
     const child = await createReply(first.id, moment.id, { body: "Nested reply", parent_id: parent.id, media_asset_ids: [] });
     expect((await listReplies(moment.id, first.id, 20)).data).toHaveLength(1);
     expect((await listReplies(moment.id, first.id, 20, undefined, parent.id)).data[0]?.id).toBe(child.id);

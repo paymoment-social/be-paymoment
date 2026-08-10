@@ -14,6 +14,7 @@ import {
   findReply,
   findPost,
   hydratePost,
+  hydrateReply,
   listPollVoters,
   listLatestPosts,
   countNewFeedPosts,
@@ -155,7 +156,9 @@ export async function createPostReply(userId: string, postValue: string, input: 
   const authorId = (post as { author?: { id?: string } }).author?.id;
   if (authorId) await createNotification({ userId: authorId, actorId: userId, type: "reply", postId: id, replyId: reply.id, dedupeKey: `reply:${reply.id}` });
   await notifyMentions(userId, input.body, { postId: id, replyId: reply.id });
-  return reply;
+  const hydrated = await hydrateReply(reply.id, userId);
+  if (!hydrated) throw new Error("Unable to hydrate the created reply.");
+  return hydrated;
 }
 
 export async function getPostReplies(userId: string, postValue: string, limit: number, cursor?: string, parentId?: string) {
@@ -168,7 +171,9 @@ export async function editPostReply(userId: string, replyValue: string, body: st
   const id = validId(replyValue, "reply");
   const reply = await updateReply(userId, id, body);
   if (!reply) throw new AppError(404, "NOT_FOUND", "The reply was not found or cannot be edited.");
-  return reply;
+  const hydrated = await hydrateReply(reply.id, userId);
+  if (!hydrated) throw new Error("Unable to hydrate the updated reply.");
+  return hydrated;
 }
 
 export async function deletePostReply(userId: string, replyValue: string) {

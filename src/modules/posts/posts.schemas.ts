@@ -46,10 +46,10 @@ export const updateArticleSchema = createArticleSchema.omit({ publish: true }).p
   .refine((value) => Object.keys(value).some((key) => key !== "draft_version"), "Provide at least one field to update.");
 
 export const createReplySchema = z.object({
-  body: z.string().trim().min(1).max(500),
+  body: z.string().trim().max(500).default(""),
   parent_id: uuidSchema.optional(),
   media_asset_ids: z.array(uuidSchema).max(1).default([]).transform((ids) => [...new Set(ids)]),
-});
+}).refine((value) => Boolean(value.body || value.media_asset_ids.length), { path: ["body"], message: "Add text or an image to the reply." });
 
 export const updateReplySchema = z.object({ body: z.string().trim().min(1).max(500) });
 export const votePollSchema = z.object({ option_id: uuidSchema });

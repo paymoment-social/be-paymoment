@@ -35,6 +35,27 @@ import { articlePlainText, extractTokens, sanitizeArticleHtml } from "./content"
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
+function selectDiverseCandidates<T extends { authorId: string }>(rows: T[], limit: number) {
+  const selected: T[] = [];
+  const deferred: T[] = [];
+  const authorCounts = new Map<string, number>();
+  for (const row of rows) {
+    const countForAuthor = authorCounts.get(row.authorId) ?? 0;
+    if (countForAuthor >= 2) {
+      deferred.push(row);
+      continue;
+    }
+    selected.push(row);
+    authorCounts.set(row.authorId, countForAuthor + 1);
+    if (selected.length === limit) return selected;
+  }
+  for (const row of deferred) {
+    selected.push(row);
+    if (selected.length === limit) break;
+  }
+  return selected;
+}
+
 async function syncTokens(tx: Tx, postId: string, body: string) {
   const tokens = extractTokens(body);
   const oldHashtags = await tx.select({ id: postHashtags.hashtagId }).from(postHashtags).where(eq(postHashtags.postId, postId));
@@ -156,9 +177,63 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
 
 export async function listLatestPosts(viewerId: string, limit: number, cursorValue?: string, mode: "latest" | "top" | "for_you" = "latest") {
   const cursor = decodeCursor(cursorValue);
-  const candidateLimit = Math.min(limit * 4, 100);
-  const score = mode === "latest" ? sql<number>`0` : mode === "top" ? sql<number>`(${posts.likeCount} * 3 + ${posts.replyCount} * 4 + ${posts.repostCount} * 5 + ${posts.viewCount} / 100)` : sql<number>`(${posts.likeCount} * 3 + ${posts.replyCount} * 4 + ${posts.repostCount} * 5 + ${posts.viewCount} / 100 + greatest(0, 36 - extract(epoch from (now() - ${posts.publishedAt})) / 3600) + case when exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active') then 20 else 0 end)`;
-  const rows = await getDb().select({ id: posts.id, authorId: posts.authorId, publishedAt: posts.publishedAt, score, likes: posts.likeCount, replies: posts.replyCount, reposts: posts.repostCount, views: posts.viewCount }).from(posts).where(and(
+  const rankingAt = cursor?.ranking_at ? new Date(cursor.ranking_at) : new Date();
+  const candidateLimit = Math.min(Math.max(limit * 5, 50), 150);
+  const ageHours = sql<number>`greatest(0, extract(epoch from (${rankingAt} - coalesce(${posts.publishedAt}, ${posts.createdAt}))) / 3600)`;
+  const engagement = sql<number>`(${posts.likeCount} * 2 + ${posts.replyCount} * 5 + ${posts.repostCount} * 6 + ${posts.bookmarkCount} * 3 + least(${posts.viewCount}, 5000) / 200.0)`;
+  const freshness = sql<number>`greatest(0, 72 - ${ageHours}) * 0.75`;
+  const inNetwork = sql<boolean>`exists (select 1 from ${follows} feed_follow where feed_follow.follower_id = ${viewerId} and feed_follow.following_id = ${posts.authorId} and feed_follow.status = 'active')`;
+  const authorAffinity = sql<number>`least(24, (
+    select count(*) * 2 from ${postLikes} affinity_like
+    inner join ${posts} affinity_post on affinity_post.id = affinity_like.post_id
+    where affinity_like.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_like.created_at > ${rankingAt} - interval '90 days'
+  ) + (
+    select count(*) * 3 from ${reposts} affinity_repost
+    inner join ${posts} affinity_post on affinity_post.id = affinity_repost.post_id
+    where affinity_repost.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_repost.created_at > ${rankingAt} - interval '90 days'
+  ) + (
+    select count(*) * 3 from ${postReplies} affinity_reply
+    where affinity_reply.author_id = ${viewerId} and affinity_reply.post_id in (
+      select affinity_post.id from ${posts} affinity_post where affinity_post.author_id = ${posts.authorId}
+    ) and affinity_reply.created_at > ${rankingAt} - interval '90 days'
+  ))`;
+  const topicAffinity = sql<number>`least(15, coalesce((
+    select count(distinct candidate_tag.hashtag_id) * 5
+    from ${postHashtags} candidate_tag
+    where candidate_tag.post_id = ${posts.id} and exists (
+      select 1 from ${postHashtags} affinity_tag
+      inner join ${postLikes} affinity_like on affinity_like.post_id = affinity_tag.post_id
+      where affinity_tag.hashtag_id = candidate_tag.hashtag_id and affinity_like.user_id = ${viewerId}
+    )
+  ), 0))`;
+  const viewedPenalty = sql<number>`case when exists (select 1 from ${postViews} feed_view where feed_view.post_id = ${posts.id} and feed_view.user_id = ${viewerId}) then 8 else 0 end`;
+  const score = mode === "latest"
+    ? sql<number>`0`
+    : mode === "top"
+      ? engagement
+      : sql<number>`(
+        (${engagement} / power(greatest(2, ${ageHours} + 2), 0.65)) * 5
+        + ${freshness}
+        + case when ${inNetwork} then 32 else 0 end
+        + case when ${posts.authorId} = ${viewerId} then 6 else 0 end
+        + ${authorAffinity}
+        + ${topicAffinity}
+        - ${viewedPenalty}
+      )`;
+  const rows = await getDb().select({
+    id: posts.id,
+    authorId: posts.authorId,
+    publishedAt: posts.publishedAt,
+    score,
+    likes: posts.likeCount,
+    replies: posts.replyCount,
+    reposts: posts.repostCount,
+    views: posts.viewCount,
+    freshness,
+    authorAffinity,
+    topicAffinity,
+    inNetwork,
+  }).from(posts).where(and(
     eq(posts.status, "published"), isNull(posts.deletedAt),
     or(eq(posts.authorId, viewerId), eq(posts.visibility, "public"), and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`)),
     sql`not exists (select 1 from ${userBlocks} b where (b.blocker_id = ${viewerId} and b.blocked_id = ${posts.authorId}) or (b.blocker_id = ${posts.authorId} and b.blocked_id = ${viewerId}))`,
@@ -166,23 +241,22 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     mode === "latest" && cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
     mode !== "latest" && cursor?.score !== undefined ? or(lt(score, cursor.score), and(eq(score, cursor.score), or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))))) : undefined,
   )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(candidateLimit);
-  const page = rows.slice(0, limit);
+  const page = mode === "for_you" ? selectDiverseCandidates(rows, limit) : rows.slice(0, limit);
   const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
-  // For You is a persistent ranked feed, like X/Threads. Reading a post must
-  // never make it disappear from that feed, so do not persist a seen signal
-  // for this mode. Impression tracking remains available for other feed modes.
-  if (page.length && mode !== "for_you") {
+  // Impressions are analytics signals only. They are intentionally not used as
+  // an exclusion filter, so opening or refreshing For You never removes posts.
+  if (page.length) {
     await getDb().insert(feedImpressions).values(page.map((row) => ({
       userId: viewerId,
       postId: row.id,
       feedMode: mode,
-      rankingVersion: "v2",
+      rankingVersion: "v3",
       score: mode === "latest" ? null : Math.round(Number(row.score)),
-      context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, following_boost: 0 } },
+      context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, freshness: Number(row.freshness), author_affinity: Number(row.authorAffinity), topic_affinity: Number(row.topicAffinity), in_network: Boolean(row.inNetwork) } },
     })));
   }
   const last = page.at(-1);
-  return { data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)), hasMore: rows.length === candidateLimit, nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score) } : {}) }) : null };
+  return { data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)), hasMore: rows.length === candidateLimit, nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score), ranking_at: rankingAt.toISOString() } : {}) }) : null };
 }
 
 export async function countNewFeedPosts(viewerId: string, since: Date) {
@@ -323,6 +397,41 @@ export async function createReply(authorId: string, postId: string, input: Creat
   });
 }
 
+async function hydrateReplyRow(reply: typeof postReplies.$inferSelect, viewerId: string) {
+  const [author, media, liked] = await Promise.all([
+    getUserProfile(reply.authorId, viewerId),
+    getDb().select({ id: mediaAssets.id, url: mediaAssets.gatewayUrl, mime_type: mediaAssets.mimeType, alt_text: mediaAssets.altText })
+      .from(replyMedia)
+      .innerJoin(mediaAssets, eq(mediaAssets.id, replyMedia.mediaAssetId))
+      .where(eq(replyMedia.replyId, reply.id)),
+    getDb().select({ id: replyLikes.replyId })
+      .from(replyLikes)
+      .where(and(eq(replyLikes.replyId, reply.id), eq(replyLikes.userId, viewerId)))
+      .limit(1),
+  ]);
+  if (!author) throw new Error("Unable to hydrate the reply author.");
+  return {
+    id: reply.id,
+    post_id: reply.postId,
+    parent_id: reply.parentId,
+    body: reply.status === "deleted" ? "" : reply.body,
+    status: reply.status,
+    author,
+    media,
+    like_count: reply.likeCount,
+    reply_count: reply.replyCount,
+    viewer_liked: liked.length > 0,
+    is_owner: reply.authorId === viewerId,
+    created_at: reply.createdAt.toISOString(),
+    updated_at: reply.updatedAt.toISOString(),
+  };
+}
+
+export async function hydrateReply(replyId: string, viewerId: string) {
+  const [reply] = await getDb().select().from(postReplies).where(and(eq(postReplies.id, replyId), ne(postReplies.status, "moderated"))).limit(1);
+  return reply ? hydrateReplyRow(reply, viewerId) : null;
+}
+
 export async function listReplies(postId: string, viewerId: string, limit: number, cursorValue?: string, parentId?: string) {
   const cursor = decodeCursor(cursorValue);
   const rows = await getDb().select().from(postReplies).where(and(
@@ -330,14 +439,7 @@ export async function listReplies(postId: string, viewerId: string, limit: numbe
     cursor ? or(gt(postReplies.createdAt, new Date(cursor.created_at)), and(eq(postReplies.createdAt, new Date(cursor.created_at)), gt(postReplies.id, cursor.id))) : undefined,
   )).orderBy(postReplies.createdAt, postReplies.id).limit(limit + 1);
   const page = rows.slice(0, limit);
-  const data = await Promise.all(page.map(async (reply) => {
-    const [author, media, liked] = await Promise.all([
-      getUserProfile(reply.authorId, viewerId),
-      getDb().select({ id: mediaAssets.id, url: mediaAssets.gatewayUrl, mime_type: mediaAssets.mimeType, alt_text: mediaAssets.altText }).from(replyMedia).innerJoin(mediaAssets, eq(mediaAssets.id, replyMedia.mediaAssetId)).where(eq(replyMedia.replyId, reply.id)),
-      getDb().select({ id: replyLikes.replyId }).from(replyLikes).where(and(eq(replyLikes.replyId, reply.id), eq(replyLikes.userId, viewerId))).limit(1),
-    ]);
-    return { id: reply.id, post_id: reply.postId, parent_id: reply.parentId, body: reply.status === "deleted" ? "" : reply.body, status: reply.status, author, media, like_count: reply.likeCount, reply_count: reply.replyCount, viewer_liked: liked.length > 0, is_owner: reply.authorId === viewerId, created_at: reply.createdAt.toISOString(), updated_at: reply.updatedAt.toISOString() };
-  }));
+  const data = await Promise.all(page.map((reply) => hydrateReplyRow(reply, viewerId)));
   const last = page.at(-1);
   return { data, hasMore: rows.length > limit, nextCursor: rows.length > limit && last ? encodeCursor({ created_at: last.createdAt.toISOString(), id: last.id }) : null };
 }
