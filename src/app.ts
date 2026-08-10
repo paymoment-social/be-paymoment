@@ -16,6 +16,7 @@ import { messagesRoutes } from "./modules/messages/messages.routes";
 import { mcpRoutes } from "./modules/mcp/mcp.routes";
 import { reportsRoutes } from "./modules/reports/reports.routes";
 import { mcpOauthRoutes } from "./modules/mcp/mcp.oauth";
+import { mcpConnectionRoutes } from "./modules/mcp/mcp.connections";
 
 type AppDependencies = {
   readiness?: () => Promise<ReadinessResult>;
@@ -66,6 +67,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/api/v1", messagesRoutes);
   app.route("/api/v1/reports", reportsRoutes);
   app.route("/oauth", mcpOauthRoutes);
+  app.route("/api/v1/mcp", mcpConnectionRoutes);
   app.route("/mcp", mcpRoutes);
   app.notFound((c) => {
     const error = new AppError(404, "NOT_FOUND", "The requested resource was not found.");
