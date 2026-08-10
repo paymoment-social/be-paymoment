@@ -178,24 +178,25 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
 export async function listLatestPosts(viewerId: string, limit: number, cursorValue?: string, mode: "latest" | "top" | "for_you" = "latest") {
   const cursor = decodeCursor(cursorValue);
   const rankingAt = cursor?.ranking_at ? new Date(cursor.ranking_at) : new Date();
+  const rankingAtValue = rankingAt.toISOString();
   const candidateLimit = Math.min(Math.max(limit * 5, 50), 150);
-  const ageHours = sql<number>`greatest(0, extract(epoch from (${rankingAt} - coalesce(${posts.publishedAt}, ${posts.createdAt}))) / 3600)`;
+  const ageHours = sql<number>`greatest(0, extract(epoch from (${rankingAtValue}::timestamptz - coalesce(${posts.publishedAt}, ${posts.createdAt}))) / 3600)`;
   const engagement = sql<number>`(${posts.likeCount} * 2 + ${posts.replyCount} * 5 + ${posts.repostCount} * 6 + ${posts.bookmarkCount} * 3 + least(${posts.viewCount}, 5000) / 200.0)`;
   const freshness = sql<number>`greatest(0, 72 - ${ageHours}) * 0.75`;
   const inNetwork = sql<boolean>`exists (select 1 from ${follows} feed_follow where feed_follow.follower_id = ${viewerId} and feed_follow.following_id = ${posts.authorId} and feed_follow.status = 'active')`;
   const authorAffinity = sql<number>`least(24, (
     select count(*) * 2 from ${postLikes} affinity_like
     inner join ${posts} affinity_post on affinity_post.id = affinity_like.post_id
-    where affinity_like.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_like.created_at > ${rankingAt} - interval '90 days'
+    where affinity_like.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_like.created_at > ${rankingAtValue}::timestamptz - interval '90 days'
   ) + (
     select count(*) * 3 from ${reposts} affinity_repost
     inner join ${posts} affinity_post on affinity_post.id = affinity_repost.post_id
-    where affinity_repost.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_repost.created_at > ${rankingAt} - interval '90 days'
+    where affinity_repost.user_id = ${viewerId} and affinity_post.author_id = ${posts.authorId} and affinity_repost.created_at > ${rankingAtValue}::timestamptz - interval '90 days'
   ) + (
     select count(*) * 3 from ${postReplies} affinity_reply
     where affinity_reply.author_id = ${viewerId} and affinity_reply.post_id in (
       select affinity_post.id from ${posts} affinity_post where affinity_post.author_id = ${posts.authorId}
-    ) and affinity_reply.created_at > ${rankingAt} - interval '90 days'
+    ) and affinity_reply.created_at > ${rankingAtValue}::timestamptz - interval '90 days'
   ))`;
   const topicAffinity = sql<number>`least(15, coalesce((
     select count(distinct candidate_tag.hashtag_id) * 5
