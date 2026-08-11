@@ -4,7 +4,7 @@ import { getDb } from "../../db/client";
 import { posts, reports, userRoles, users } from "../../db/schema";
 import { upsertGoogleIdentity } from "../auth/auth.repository";
 import { createReport, listMyReports, reviewModerationReport } from "../reports/reports.repository";
-import { createPost, listLatestPosts, setPostLike } from "../posts/posts.repository";
+import { countNewFeedPosts, createPost, listLatestPosts, setPostLike } from "../posts/posts.repository";
 import { muteUser, persistOnboarding, setFollowRelationship } from "../users/users.repository";
 import { searchDiscover } from "./discover.repository";
 
@@ -56,6 +56,10 @@ describe("database-backed discover, ranking, and moderation integration", () => 
     // For You is persistent like X/Threads: reading a post does not remove it.
     const refreshedForYou = await listLatestPosts(viewer.id, 4, undefined, "for_you");
     expect(refreshedForYou.data.map((post) => String(post.id))).toEqual(rankedIds);
+
+    const ownPost = await createPost(viewer.id, { kind: "moment", body: "Phase search own post", visibility: "public", media_asset_ids: [] });
+    expect(ownPost.publishedAt).not.toBeNull();
+    expect(await countNewFeedPosts(viewer.id, new Date(ownPost.publishedAt!.getTime() - 1))).toBe(0);
 
     const report = await createReport(viewer.id, { target_type: "post", target_id: followed.id, reason: "spam", details: "Integration moderation case" });
     await getDb().insert(userRoles).values({ userId: authorA.id, role: "moderator" });

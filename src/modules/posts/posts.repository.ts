@@ -32,29 +32,9 @@ import { decodeCursor, encodeCursor } from "../../lib/pagination";
 import { getUserProfile } from "../users/users.repository";
 import type { CreateArticleInput, CreatePostInput, CreateReplyInput, UpdateArticleInput, UpdatePostInput } from "./posts.schemas";
 import { articlePlainText, extractTokens, sanitizeArticleHtml } from "./content";
+import { paginateFeedCandidates } from "./feed-pagination";
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
-
-function selectDiverseCandidates<T extends { authorId: string }>(rows: T[], limit: number) {
-  const selected: T[] = [];
-  const deferred: T[] = [];
-  const authorCounts = new Map<string, number>();
-  for (const row of rows) {
-    const countForAuthor = authorCounts.get(row.authorId) ?? 0;
-    if (countForAuthor >= 2) {
-      deferred.push(row);
-      continue;
-    }
-    selected.push(row);
-    authorCounts.set(row.authorId, countForAuthor + 1);
-    if (selected.length === limit) return selected;
-  }
-  for (const row of deferred) {
-    selected.push(row);
-    if (selected.length === limit) break;
-  }
-  return selected;
-}
 
 async function syncTokens(tx: Tx, postId: string, body: string) {
   const tokens = extractTokens(body);
@@ -179,7 +159,6 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
   const cursor = decodeCursor(cursorValue);
   const rankingAt = cursor?.ranking_at ? new Date(cursor.ranking_at) : new Date();
   const rankingAtValue = rankingAt.toISOString();
-  const candidateLimit = Math.min(Math.max(limit * 5, 50), 150);
   const ageHours = sql<number>`greatest(0, extract(epoch from (${rankingAtValue}::timestamptz - coalesce(${posts.publishedAt}, ${posts.createdAt}))) / 3600)`;
   const engagement = sql<number>`(${posts.likeCount} * 2 + ${posts.replyCount} * 5 + ${posts.repostCount} * 6 + ${posts.bookmarkCount} * 3 + least(${posts.viewCount}, 5000) / 200.0)`;
   const freshness = sql<number>`greatest(0, 72 - ${ageHours}) * 0.75`;
@@ -241,8 +220,8 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     sql`not exists (select 1 from ${userMutes} m where m.muter_id = ${viewerId} and m.muted_id = ${posts.authorId} and (m.expires_at is null or m.expires_at > now()))`,
     mode === "latest" && cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
     mode !== "latest" && cursor?.score !== undefined ? or(lt(score, cursor.score), and(eq(score, cursor.score), or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))))) : undefined,
-  )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(candidateLimit);
-  const page = mode === "for_you" ? selectDiverseCandidates(rows, limit) : rows.slice(0, limit);
+  )).orderBy(mode === "latest" ? desc(posts.publishedAt) : desc(score), desc(posts.publishedAt), desc(posts.id)).limit(limit + 1);
+  const { page, cursorRow, hasMore } = paginateFeedCandidates(rows, limit, mode === "for_you");
   const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
   // Impressions are analytics signals only. They are intentionally not used as
   // an exclusion filter, so opening or refreshing For You never removes posts.
@@ -256,11 +235,10 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
       context: { cursor: Boolean(cursorValue), signals: { likes: row.likes, replies: row.replies, reposts: row.reposts, views: row.views, freshness: Number(row.freshness), author_affinity: Number(row.authorAffinity), topic_affinity: Number(row.topicAffinity), in_network: Boolean(row.inNetwork) } },
     })));
   }
-  const last = page.at(-1);
   return {
     data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)),
-    hasMore: rows.length === candidateLimit,
-    nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score), ranking_at: rankingAt.toISOString() } : {}) }) : null,
+    hasMore,
+    nextCursor: hasMore && cursorRow?.publishedAt ? encodeCursor({ created_at: cursorRow.publishedAt.toISOString(), id: cursorRow.id, ...(mode !== "latest" ? { score: Number(cursorRow.score), ranking_at: rankingAt.toISOString() } : {}) }) : null,
     snapshotAt: new Date().toISOString(),
   };
 }
@@ -270,8 +248,8 @@ export async function countNewFeedPosts(viewerId: string, since: Date) {
     eq(posts.status, "published"),
     isNull(posts.deletedAt),
     gt(posts.publishedAt, since),
+    ne(posts.authorId, viewerId),
     or(
-      eq(posts.authorId, viewerId),
       eq(posts.visibility, "public"),
       and(
         eq(posts.visibility, "followers"),
