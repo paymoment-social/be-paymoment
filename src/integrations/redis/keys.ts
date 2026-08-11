@@ -14,4 +14,5 @@ export const redisKeys = {
   trending: (window: string) => `${prefix}:trending:${segment(window)}`,
   websocketChannel: (userId: string) => `${prefix}:ws:user:${segment(userId)}`,
   websocketPattern: () => `${prefix}:ws:user:*`,
+  websocketBroadcastChannel: () => `${prefix}:ws:broadcast`,
 };

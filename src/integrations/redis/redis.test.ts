@@ -26,6 +26,7 @@ describe("Redis foundation", () => {
   test("builds namespaced and normalized keys", () => {
     expect(redisKeys.presence("USER/One")).toBe("paymoment:presence:user%2Fone");
     expect(redisKeys.websocketChannel("A B")).toBe("paymoment:ws:user:a%20b");
+    expect(redisKeys.websocketBroadcastChannel()).toBe("paymoment:ws:broadcast");
   });
 
   test("stores and replays final idempotency state", async () => {

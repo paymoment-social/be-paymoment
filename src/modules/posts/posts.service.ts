@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError } from "../../lib/errors";
+import { publishBroadcastEvent } from "../../lib/websocket";
 import { hashPrivateValue } from "../auth/session";
 import { getUserProfile, userIdByUsername } from "../users/users.repository";
 import { recordTrendingHashtags } from "../discover/trending";
@@ -77,9 +78,12 @@ export function parseVersionHeader(value: string | undefined) {
 
 export async function createMoment(userId: string, input: CreatePostInput, actorType: "human" | "mcp_agent" = "human") {
   const created = await createPost(userId, input, actorType);
-  void recordTrendingHashtags(extractTokens(input.body).hashtags);
+  const hashtags = extractTokens(input.body).hashtags;
+  await recordTrendingHashtags(hashtags);
   await notifyMentions(userId, input.body, { postId: created.id });
-  return (await hydratePost(created.id, userId))!;
+  const post = (await hydratePost(created.id, userId))!;
+  void publishBroadcastEvent("post.created", { post_id: created.id, author_id: userId, hashtags }).catch((error) => console.error(JSON.stringify({ level: "error", message: "Post realtime broadcast failed.", error: error instanceof Error ? error.message : String(error) })));
+  return post;
 }
 
 export async function getMoment(userId: string, id: string) {
