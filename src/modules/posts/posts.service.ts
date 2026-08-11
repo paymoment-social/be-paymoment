@@ -17,6 +17,7 @@ import {
   hydrateReply,
   listPollVoters,
   listLatestPosts,
+  listUserPosts,
   countNewFeedPosts,
   listBookmarkedPosts,
   listLikedPosts,
@@ -87,6 +88,14 @@ export async function getMoment(userId: string, id: string) {
 
 export async function getLatestFeed(userId: string, limit: number, cursor?: string, mode: "latest" | "top" | "for_you" = "latest") {
   return listLatestPosts(userId, limit, cursor, mode);
+}
+
+export async function getUserPosts(viewerId: string, username: string, limit: number, cursor?: string) {
+  const targetId = await userIdByUsername(username.trim().toLowerCase());
+  if (!targetId) throw new AppError(404, "NOT_FOUND", "The user profile was not found.");
+  const profile = await getUserProfile(targetId, viewerId);
+  if (!profile) throw new AppError(404, "NOT_FOUND", "The user profile was not found.");
+  return listUserPosts(targetId, viewerId, limit, cursor);
 }
 
 export function getNewFeedPostCount(userId: string, since: string) {

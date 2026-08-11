@@ -25,6 +25,7 @@ export async function createMessageRequest(userId: string, recipientId: string) 
   const [request] = await getDb().insert(conversationRequests).values({ requesterId: userId, recipientId }).onConflictDoNothing().returning();
   if (!request) throw new AppError(409, "CONFLICT", "You already have a pending message request for this user.");
   await createNotification({ userId: recipientId, actorId: userId, type: "message", dedupeKey: `message-request:${request.id}`, payload: { message_request_id: request.id, action: "requested" } });
+  await publishUserEvent(recipientId, "message.requested", { request_id: request.id, requester_id: userId });
   return { id: request.id, recipient_id: request.recipientId, status: request.status, created_at: request.createdAt.toISOString() };
 }
 export async function listIncomingMessageRequests(userId: string) {

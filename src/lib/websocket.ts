@@ -5,7 +5,7 @@ import { conversationMembers } from "../db/schema";
 import { getRedisPublisher, getRedisSubscriber } from "../integrations/redis/client";
 import { redisKeys } from "../integrations/redis/keys";
 
-export type RealtimeEvent = { type: "message.created" | "message.read" | "conversation.updated" | "notification.created" | "presence.updated" | "typing.updated"; data: Record<string, unknown>; occurred_at: string };
+export type RealtimeEvent = { type: "message.created" | "message.read" | "message.requested" | "conversation.updated" | "notification.created" | "presence.updated" | "typing.updated"; data: Record<string, unknown>; occurred_at: string };
 type SocketData = { userId: string };
 const sockets = new Map<string, Set<ServerWebSocket<SocketData>>>();
 let subscribed = false;

@@ -243,6 +243,29 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
   };
 }
 
+export async function listUserPosts(authorId: string, viewerId: string, limit: number, cursorValue?: string) {
+  const cursor = decodeCursor(cursorValue);
+  const rows = await getDb().select({ id: posts.id, publishedAt: posts.publishedAt }).from(posts).where(and(
+    eq(posts.authorId, authorId),
+    eq(posts.status, "published"),
+    isNull(posts.deletedAt),
+    authorId === viewerId ? undefined : or(
+      eq(posts.visibility, "public"),
+      and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} profile_follow where profile_follow.follower_id = ${viewerId} and profile_follow.following_id = ${authorId} and profile_follow.status = 'active')`),
+    ),
+    sql`not exists (select 1 from ${userBlocks} profile_block where (profile_block.blocker_id = ${viewerId} and profile_block.blocked_id = ${authorId}) or (profile_block.blocker_id = ${authorId} and profile_block.blocked_id = ${viewerId}))`,
+    cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
+  )).orderBy(desc(posts.publishedAt), desc(posts.id)).limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
+  const last = page.at(-1);
+  return {
+    data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)),
+    hasMore: rows.length > limit,
+    nextCursor: rows.length > limit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id }) : null,
+  };
+}
+
 export async function countNewFeedPosts(viewerId: string, since: Date) {
   const [row] = await getDb().select({ value: count() }).from(posts).where(and(
     eq(posts.status, "published"),

@@ -4,6 +4,8 @@ import { paginated, success } from "../../lib/responses";
 import { enforceRateLimit } from "../../lib/rate-limit";
 import { parseJson, parseQuery } from "../../lib/validation";
 import { requireSession } from "../auth/auth.service";
+import { listContentQuerySchema } from "../posts/posts.schemas";
+import { getUserPosts } from "../posts/posts.service";
 import { listUsersQuerySchema, muteUserSchema, onboardingSchema, updateProfileSchema } from "./users.schemas";
 import {
   checkUsernameAvailability,
@@ -115,6 +117,13 @@ usersRoutes.get("/:id/following", async (c) => {
   const query = parseQuery(c, listUsersQuerySchema);
   const page = await listRelationships(c.req.param("id"), "following", session.user.id, query.limit, query.cursor);
   return paginated(c, page.profiles, page.nextCursor, page.hasMore);
+});
+
+usersRoutes.get("/:username/posts", async (c) => {
+  const session = await requireSession(c);
+  const query = parseQuery(c, listContentQuerySchema.omit({ parent_id: true }));
+  const page = await getUserPosts(session.user.id, c.req.param("username"), query.limit, query.cursor);
+  return paginated(c, page.data, page.nextCursor, page.hasMore);
 });
 
 usersRoutes.get("/:username", async (c) => {
