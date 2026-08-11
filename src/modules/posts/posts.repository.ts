@@ -257,7 +257,12 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     })));
   }
   const last = page.at(-1);
-  return { data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)), hasMore: rows.length === candidateLimit, nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score), ranking_at: rankingAt.toISOString() } : {}) }) : null };
+  return {
+    data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)),
+    hasMore: rows.length === candidateLimit,
+    nextCursor: rows.length === candidateLimit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id, ...(mode !== "latest" ? { score: Number(last.score), ranking_at: rankingAt.toISOString() } : {}) }) : null,
+    snapshotAt: new Date().toISOString(),
+  };
 }
 
 export async function countNewFeedPosts(viewerId: string, since: Date) {

@@ -60,7 +60,7 @@ feedRoutes.get("/", async (c) => {
   const session = await requireSession(c);
   const query = parseQuery(c, listContentQuerySchema.omit({ parent_id: true }).extend({ mode: z.enum(["latest", "top", "for_you"]).default("latest") }));
   const page = await getLatestFeed(session.user.id, query.limit, query.cursor, query.mode);
-  return paginated(c, page.data, page.nextCursor, page.hasMore);
+  return paginated(c, page.data, page.nextCursor, page.hasMore, { snapshot_at: page.snapshotAt });
 });
 
 feedRoutes.get("/updates", async (c) => {
