@@ -71,6 +71,13 @@
       "when": 1786330800000,
       "tag": "0009_profile_cover",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786334400000,
+      "tag": "0010_pin_posts",
+      "breakpoints": true
     }
   ]
 }
