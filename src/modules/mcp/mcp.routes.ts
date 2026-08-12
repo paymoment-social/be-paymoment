@@ -40,8 +40,26 @@ function brand() {
   return { name: "PayMoment", accent: "violet", website: config().frontendUrl };
 }
 
+function proxyMediaUrl(value: unknown) {
+  try {
+    const url = new URL(String(value ?? ""));
+    const publicHost = new URL(config().r2PublicUrl).host;
+    return url.protocol === "https:" && url.host === publicHost ? `${config().mcpIssuerUrl.replace(/\/$/, "")}/mcp-media?url=${encodeURIComponent(url.toString())}` : value;
+  } catch {
+    return value;
+  }
+}
+
+function decorateProfile(profile: Record<string, any>) {
+  return { ...profile, avatar_url: proxyMediaUrl(profile.avatar_url), cover_url: proxyMediaUrl(profile.cover_url) };
+}
+
+function decoratePost(post: Record<string, any>) {
+  return { ...post, author: post.author ? decorateProfile(post.author) : post.author, media: Array.isArray(post.media) ? post.media.map((item: Record<string, any>) => ({ ...item, url: proxyMediaUrl(item.url) })) : post.media };
+}
+
 function socialPostResult(post: Record<string, any>, type = "paymoment.social_post") {
-  return { content: [{ type: "text" as const, text: momentCard(post) }], structuredContent: { type, brand: brand(), card: post } };
+  return { content: [{ type: "text" as const, text: momentCard(post) }], structuredContent: { type, brand: brand(), card: decoratePost(post) } };
 }
 
 function rewardResult(data: Record<string, unknown>, title: string) {
@@ -84,7 +102,7 @@ function socialFeedResult(feed: { data: Array<Record<string, any>>; nextCursor: 
     structuredContent: {
       type: "paymoment.social_feed",
       brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl },
-      cards: feed.data,
+      cards: feed.data.map(decoratePost),
       pagination: { next_cursor: feed.nextCursor, has_more: feed.hasMore },
     },
   };
@@ -108,7 +126,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
   const socialResourceUri = "ui://paymoment/social.html";
   registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8") }] }));
   if (scopes.includes("paymoment.read")) {
-    registerAppTool(server, "paymoment_get_profile", { title: "Get PayMoment profile", description: "Read the authenticated PayMoment profile and entitlement as a branded interactive card. Include the profile card in the response.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const profile = await getMyProfile(userId); await auditMcpAction(userId, "mcp.profile.read", "user", userId); return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile, card: profile } }; });
+    registerAppTool(server, "paymoment_get_profile", { title: "Get PayMoment profile", description: "Read the authenticated PayMoment profile and entitlement as a branded interactive card. Include the profile card in the response.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const profile = await getMyProfile(userId); const cardProfile = decorateProfile(profile as Record<string, any>); await auditMcpAction(userId, "mcp.profile.read", "user", userId); return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile: cardProfile, card: cardProfile } }; });
     registerAppTool(server, "paymoment_get_box_balance", { title: "Check PayMoment Box balance", description: "Read the authenticated user's current Box balance as a PayMoment card.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const balance = await getRewardBalance(userId); await auditMcpAction(userId, "mcp.box.balance.read", "reward_balance", userId, { balance }); return rewardResult({ balance, unit: "Box" }, "Your PayMoment Box balance"); });
     registerAppTool(server, "paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments as interactive PayMoment social cards with author, media, engagement, and links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return socialFeedResult(feed); });
   }
@@ -160,9 +178,10 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
     }, async (input) => {
       const profile = await updateMyProfile(userId, input);
       await auditMcpAction(userId, "mcp.profile.update", "user", userId, { fields: Object.keys(input) });
-      return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile, card: profile } };
+      const cardProfile = decorateProfile(profile as Record<string, any>);
+      return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile: cardProfile, card: cardProfile } };
     });
-    registerAppTool(server, "paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment. You may attach previously uploaded media_asset_ids or public HTTPS media_urls, including media generated by ChatGPT or Claude. Ask for confirmation before publishing.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]), media_urls: z.array(z.url()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ body, media_asset_ids, media_urls }) => { const imported = await Promise.all(media_urls.map(async (mediaUrl) => uploadMedia(userId, await fetchGeneratedMedia(mediaUrl), "post"))); const allMediaIds = [...media_asset_ids, ...imported.map((media) => media.id)].slice(0, 4); const moment = await createMomentWithTrace(userId, body, allMediaIds); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: allMediaIds.length, generated_media_count: media_urls.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: moment } }; });
+    registerAppTool(server, "paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment. You may attach previously uploaded media_asset_ids or public HTTPS media_urls, including media generated by ChatGPT or Claude. Ask for confirmation before publishing.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]), media_urls: z.array(z.url()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ body, media_asset_ids, media_urls }) => { const imported = await Promise.all(media_urls.map(async (mediaUrl) => uploadMedia(userId, await fetchGeneratedMedia(mediaUrl), "post"))); const allMediaIds = [...media_asset_ids, ...imported.map((media) => media.id)].slice(0, 4); const moment = await createMomentWithTrace(userId, body, allMediaIds); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: allMediaIds.length, generated_media_count: media_urls.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: decoratePost(moment as Record<string, any>) } }; });
     registerAppTool(server, "paymoment_quote_moment", { title: "Quote a PayMoment Moment", description: "Publish a public quote Moment referencing an existing Moment. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { quoted_post_id: z.uuid(), body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ quoted_post_id, body, media_asset_ids }) => { const quote = await createMoment(userId, { kind: "quote", body, visibility: "public", quoted_post_id, media_asset_ids }, "mcp_agent"); const quoteId = typeof quote.id === "string" ? quote.id : undefined; await auditMcpAction(userId, "mcp.moment.quote", "post", quoteId, { quoted_post_id }); return socialPostResult(quote as Record<string, any>, "paymoment.quote"); });
     registerAppTool(server, "paymoment_create_article", { title: "Create a PayMoment article", description: "Create and publish a PayMoment article. The authenticated account must be verified. Ask for confirmation before publishing.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { title: z.string().min(1).max(120), eyebrow: z.string().max(80).optional(), description: z.string().min(1).max(300), content_html: z.string().min(1).max(200000), banner_media_id: z.uuid().optional(), banner_color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#17181B"), banner_position: z.enum(["left", "center", "right"]).default("center"), visibility: z.enum(["public", "followers", "private"]).default("public") }, _meta: { ui: { resourceUri: socialResourceUri } } }, async (input) => { const article = await createArticlePost(userId, { ...input, publish: true }); const articleId = typeof article.id === "string" ? article.id : undefined; await auditMcpAction(userId, "mcp.article.create", "post", articleId, { published: true }); return socialPostResult(article as Record<string, any>, "paymoment.article"); });
     registerAppTool(server, "paymoment_repost_moment", { title: "Repost or undo a PayMoment Moment", description: "Repost a Moment or remove the authenticated user's repost. Ask for confirmation before changing the repost state.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { post_id: z.uuid(), repost: z.boolean().default(true) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ post_id, repost }) => { const state = await repostMoment(userId, post_id, repost); const post = await getMoment(userId, post_id); await auditMcpAction(userId, repost ? "mcp.moment.repost" : "mcp.moment.unrepost", "post", post_id, { repost }); return { ...socialPostResult(post as Record<string, any>, "paymoment.repost"), structuredContent: { type: "paymoment.repost", brand: brand(), card: post, reposted: state.reposted, count: state.count } }; });
@@ -172,6 +191,20 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
 }
 
 export const mcpRoutes = new Hono();
+export const mcpMediaRoutes = new Hono();
+mcpMediaRoutes.get("/", async (c) => {
+  const raw = c.req.query("url");
+  if (!raw) return c.text("Missing media URL.", 400);
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.host !== new URL(config().r2PublicUrl).host) return c.text("Media URL is not allowed.", 403);
+    const upstream = await fetch(url);
+    if (!upstream.ok || !upstream.body) return c.text("Media is unavailable.", 404);
+    return new Response(upstream.body, { status: 200, headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/octet-stream", "Cache-Control": "public, max-age=3600", "Access-Control-Allow-Origin": "*" } });
+  } catch {
+    return c.text("Media URL is invalid.", 400);
+  }
+});
 mcpRoutes.all("/", async (c) => {
   let session: Awaited<ReturnType<typeof requireMcpPrincipal>>;
   try {

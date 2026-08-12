@@ -13,7 +13,7 @@ import { discoverRoutes } from "./modules/discover/discover.routes";
 import { notificationsRoutes } from "./modules/notifications/notifications.routes";
 import { rewardsRoutes } from "./modules/rewards/rewards.routes";
 import { messagesRoutes } from "./modules/messages/messages.routes";
-import { mcpRoutes } from "./modules/mcp/mcp.routes";
+import { mcpMediaRoutes, mcpRoutes } from "./modules/mcp/mcp.routes";
 import { reportsRoutes } from "./modules/reports/reports.routes";
 import { mcpOauthRoutes } from "./modules/mcp/mcp.oauth";
 import { mcpConnectionRoutes } from "./modules/mcp/mcp.connections";
@@ -69,6 +69,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/oauth", mcpOauthRoutes);
   app.route("/api/v1/mcp", mcpConnectionRoutes);
   app.route("/mcp", mcpRoutes);
+  app.route("/mcp-media", mcpMediaRoutes);
   app.notFound((c) => {
     const error = new AppError(404, "NOT_FOUND", "The requested resource was not found.");
     return c.json(errorPayload(c, error), 404);
