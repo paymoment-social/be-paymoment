@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { Hono } from "hono";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { requireMcpPrincipal } from "./mcp.auth";
 import { createMoment, getLatestFeed } from "../posts/posts.service";
@@ -51,9 +53,11 @@ async function auditMcpAction(userId: string, action: string, entityType: string
 
 function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymoment.write"]) {
   const server = new McpServer({ name: "paymoment", version: "1.0.0" }, { capabilities: { logging: {} } });
+  const socialResourceUri = "ui://paymoment/social.html";
+  registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8") }] }));
   if (scopes.includes("paymoment.read")) {
     server.registerTool("paymoment_get_profile", { title: "Get PayMoment profile", description: "Read the authenticated PayMoment profile and entitlement.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {} }, async () => { const profile = await getMyProfile(userId); await auditMcpAction(userId, "mcp.profile.read", "user", userId); return { content: [{ type: "text", text: JSON.stringify(profile) }] }; });
-    server.registerTool("paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments as PayMoment social cards with author, media, engagement, and links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return socialFeedResult(feed); });
+    registerAppTool(server, "paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments as interactive PayMoment social cards with author, media, engagement, and links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return socialFeedResult(feed); });
   }
   if (scopes.includes("paymoment.write")) {
     server.registerTool("paymoment_upload_post_media", {
@@ -72,7 +76,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
       await auditMcpAction(userId, "mcp.media.upload", "media_asset", media.id, { mime_type, byte_size: media.byteSize });
       return { content: [{ type: "text", text: JSON.stringify({ media }) }] };
     });
-    server.registerTool("paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment for the authenticated PayMoment user. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) } }, async ({ body, media_asset_ids }) => { const moment = await createMoment(userId, { kind: "moment", body, visibility: "public", media_asset_ids }, "mcp_agent"); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: media_asset_ids.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: moment } }; });
+    registerAppTool(server, "paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment for the authenticated PayMoment user. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ body, media_asset_ids }) => { const moment = await createMoment(userId, { kind: "moment", body, visibility: "public", media_asset_ids }, "mcp_agent"); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: media_asset_ids.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: moment } }; });
   }
   return server;
 }
