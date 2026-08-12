@@ -71,10 +71,11 @@ function rewardMarkup(reward: NonNullable<ToolResult["structuredContent"]>["rewa
 
 function render(result?: ToolResult) {
   const data = result?.structuredContent;
+  const profile = data?.profile ?? (data?.type === "paymoment.profile" ? data.card as Profile | undefined : undefined);
   const cards = data?.cards ?? (data?.card ? [data.card] : []);
-  const content = data?.profile ? profileMarkup(data.profile, data.brand?.website) : data?.reward ? rewardMarkup(data.reward) : cards.length ? cards.map((card) => cardMarkup(card, data?.brand?.website)).join("") : `<div class="empty">No Moments to show yet.</div>`;
-  const heading = data?.profile ? "Profile" : data?.reward ? "Box" : "Social";
-  root.innerHTML = `${styles()}<section class="shell"><header class="header"><img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="PayMoment" /><span class="eyebrow">${heading}</span></header><div class="toolbar">${data?.profile || data?.reward ? "" : `<button class="button primary" data-refresh>Refresh Moments</button>`}<span class="status" role="status"></span></div><div class="cards">${content}</div></section>`;
+  const content = profile ? profileMarkup(profile, data?.brand?.website) : data?.reward ? rewardMarkup(data.reward) : cards.length ? cards.map((card) => cardMarkup(card, data?.brand?.website)).join("") : `<div class="empty">No Moments to show yet.</div>`;
+  const heading = profile ? "Profile" : data?.reward ? "Box" : "Social";
+  root.innerHTML = `${styles()}<section class="shell"><header class="header"><img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="PayMoment" /><span class="eyebrow">${heading}</span></header><div class="toolbar">${profile || data?.reward ? "" : `<button class="button primary" data-refresh>Refresh Moments</button>`}<span class="status" role="status"></span></div><div class="cards">${content}</div></section>`;
   root.querySelector<HTMLButtonElement>("[data-refresh]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     button.disabled = true;
