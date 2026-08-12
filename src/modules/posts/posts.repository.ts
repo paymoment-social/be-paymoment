@@ -262,13 +262,14 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
   const hydrated = await Promise.all(page.map(async (row) => {
     const post = await hydratePost(row.id, viewerId);
     if (!post) return null;
-    return { ...post, activity_type: row.reposted ? "repost" : "post", activity_at: row.activityAt.toISOString(), reposted_by: row.reposted ? repostAuthor : null };
+    const activityDate = new Date(row.activityAt);
+    return { ...post, activity_type: row.reposted ? "repost" : "post", activity_at: activityDate.toISOString(), reposted_by: row.reposted ? repostAuthor : null };
   }));
   const last = page.at(-1);
   return {
     data: hydrated.filter((post): post is NonNullable<typeof post> => Boolean(post)),
     hasMore: rows.length > limit,
-    nextCursor: rows.length > limit && last ? encodeCursor({ created_at: last.activityAt.toISOString(), id: last.id }) : null,
+    nextCursor: rows.length > limit && last ? encodeCursor({ created_at: new Date(last.activityAt).toISOString(), id: last.id }) : null,
   };
 }
 
