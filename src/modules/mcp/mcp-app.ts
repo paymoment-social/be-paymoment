@@ -6,7 +6,7 @@ type Card = {
   id?: string;
   body?: string;
   author?: { display_name?: string; username?: string; avatar_url?: string; verified?: boolean; entitlement?: { verified?: boolean } };
-  media?: Array<{ url?: string; alt_text?: string }>;
+  media?: Array<{ url?: string; alt_text?: string; mime_type?: string }>;
   counts?: { likes?: number; replies?: number; reposts?: number };
 };
 

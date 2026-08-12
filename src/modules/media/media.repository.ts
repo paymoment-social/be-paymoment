@@ -19,8 +19,9 @@ export async function createUploadingAsset(ownerId: string, media: ValidatedMedi
   return asset;
 }
 
-export async function markAssetReady(id: string, provider: { providerId: string; cid: string; gatewayUrl: string }) {
+export async function markAssetReady(id: string, provider: { providerId: string; cid: string; gatewayUrl: string; name?: string }) {
   const [asset] = await getDb().update(mediaAssets).set({
+    provider: provider.name ?? "r2",
     providerId: provider.providerId,
     cid: provider.cid,
     gatewayUrl: provider.gatewayUrl,
