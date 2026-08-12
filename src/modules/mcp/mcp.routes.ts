@@ -6,7 +6,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { requireMcpPrincipal } from "./mcp.auth";
 import { createArticlePost, createMoment, getLatestFeed, getMoment, repostMoment } from "../posts/posts.service";
-import { getMyProfile } from "../users/users.service";
+import { getMyProfile, updateMyProfile } from "../users/users.service";
 import { uploadMedia } from "../media/media.service";
 import { claimMomentReward, getRewardBalance } from "../rewards/rewards.repository";
 import { getDb } from "../../db/client";
@@ -109,6 +109,39 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
       const media = await uploadMedia(userId, file, "post", alt_text);
       await auditMcpAction(userId, "mcp.media.upload", "media_asset", media.id, { mime_type, byte_size: media.byteSize });
       return { content: [{ type: "text", text: JSON.stringify({ media }) }] };
+    });
+    server.registerTool("paymoment_upload_profile_media", {
+      title: "Upload PayMoment profile media",
+      description: "Upload an avatar or profile cover image. Pass raw base64 only, without a data URL prefix. Ask for confirmation before uploading.",
+      inputSchema: {
+        purpose: z.enum(["avatar", "cover"]),
+        filename: z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._-]+$/),
+        mime_type: z.enum(["image/jpeg", "image/png", "image/webp"]),
+        data_base64: base64PayloadSchema,
+        alt_text: z.string().trim().max(500).optional(),
+      },
+    }, async ({ purpose, filename, mime_type, data_base64, alt_text }) => {
+      const file = new File([Buffer.from(data_base64, "base64")], filename, { type: mime_type });
+      const media = await uploadMedia(userId, file, purpose, alt_text);
+      await auditMcpAction(userId, "mcp.profile.media.upload", "media_asset", media.id, { purpose, mime_type, byte_size: media.byteSize });
+      return { content: [{ type: "text", text: JSON.stringify({ media, next_step: `Call paymoment_update_profile with ${purpose}_url set to media.gatewayUrl.` }) }] };
+    });
+    server.registerTool("paymoment_update_profile", {
+      title: "Update PayMoment profile",
+      description: "Update profile details, avatar URL, cover URL, or cover position. Ask for confirmation before changing profile data.",
+      inputSchema: {
+        display_name: z.string().trim().min(1).max(80).optional(),
+        bio: z.string().max(160).optional(),
+        location: z.union([z.string().max(120), z.null()]).optional(),
+        website_url: z.union([z.url(), z.literal(""), z.null()]).optional(),
+        avatar_url: z.union([z.url(), z.literal(""), z.null()]).optional(),
+        cover_url: z.union([z.url(), z.literal(""), z.null()]).optional(),
+        cover_position: z.enum(["top", "center", "bottom"]).optional(),
+      },
+    }, async (input) => {
+      const profile = await updateMyProfile(userId, input);
+      await auditMcpAction(userId, "mcp.profile.update", "user", userId, { fields: Object.keys(input) });
+      return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile, card: profile } };
     });
     registerAppTool(server, "paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment for the authenticated PayMoment user. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ body, media_asset_ids }) => { const moment = await createMomentWithTrace(userId, body, media_asset_ids); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: media_asset_ids.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: moment } }; });
     registerAppTool(server, "paymoment_quote_moment", { title: "Quote a PayMoment Moment", description: "Publish a public quote Moment referencing an existing Moment. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { quoted_post_id: z.uuid(), body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ quoted_post_id, body, media_asset_ids }) => { const quote = await createMoment(userId, { kind: "quote", body, visibility: "public", quoted_post_id, media_asset_ids }, "mcp_agent"); const quoteId = typeof quote.id === "string" ? quote.id : undefined; await auditMcpAction(userId, "mcp.moment.quote", "post", quoteId, { quoted_post_id }); return socialPostResult(quote as Record<string, any>, "paymoment.quote"); });
