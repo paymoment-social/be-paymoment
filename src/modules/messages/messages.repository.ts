@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { getDb } from "../../db/client";
 import { conversationMembers, conversationRequests, conversations, mediaAssets, messageAttachments, messages } from "../../db/schema";
@@ -6,6 +7,7 @@ import { publishUserEvent } from "../../lib/websocket";
 import { decodeCursor, encodeCursor } from "../../lib/pagination";
 import { getUserProfile, isBlockedByUser } from "../users/users.repository";
 import { createNotification } from "../notifications/notifications.repository";
+import { assertDataProtectionConfigured, decryptMessageBody, encryptMessageBody } from "../../lib/data-protection";
 
 function directKey(a: string, b: string) { return [a, b].sort().join(":"); }
 export async function requireMembership(userId: string, conversationId: string) { const [member] = await getDb().select().from(conversationMembers).where(and(eq(conversationMembers.conversationId, conversationId), eq(conversationMembers.userId, userId), eq(conversationMembers.status, "active"))).limit(1); if (!member) throw new AppError(404, "NOT_FOUND", "The conversation was not found."); return member; }
@@ -47,16 +49,32 @@ export async function listConversations(userId: string) {
       getDb().select({ userId: conversationMembers.userId }).from(conversationMembers).where(and(eq(conversationMembers.conversationId, row.id), eq(conversationMembers.status, "active"), sql`${conversationMembers.userId} <> ${userId}`)).limit(1),
       getDb().select().from(messages).where(and(eq(messages.conversationId, row.id), isNull(messages.deletedAt))).orderBy(desc(messages.createdAt), desc(messages.id)).limit(1),
     ]);
-    return { ...row, participant: participant[0] ? await getUserProfile(participant[0].userId, userId) : null, unread: Boolean(latest[0] && latest[0].senderId !== userId && (!row.lastReadAt || latest[0].createdAt > row.lastReadAt)), last_message: latest[0] ? { id: latest[0].id, sender_id: latest[0].senderId, body: latest[0].body, created_at: latest[0].createdAt.toISOString() } : null };
+    const latestMessage = latest[0];
+    const latestBody = latestMessage ? await readProtectedBody(latestMessage) : null;
+    return { ...row, participant: participant[0] ? await getUserProfile(participant[0].userId, userId) : null, unread: Boolean(latestMessage && latestMessage.senderId !== userId && (!row.lastReadAt || latestMessage.createdAt > row.lastReadAt)), last_message: latestMessage ? { id: latestMessage.id, sender_id: latestMessage.senderId, body: latestBody, created_at: latestMessage.createdAt.toISOString() } : null };
   }));
 }
 async function hydrateMessage(message: typeof messages.$inferSelect) {
   const attachments = await getDb().select({ id: mediaAssets.id, url: mediaAssets.gatewayUrl, mime_type: mediaAssets.mimeType, alt_text: mediaAssets.altText, position: messageAttachments.position }).from(messageAttachments).innerJoin(mediaAssets, eq(mediaAssets.id, messageAttachments.mediaAssetId)).where(eq(messageAttachments.messageId, message.id)).orderBy(messageAttachments.position);
-  return { id: message.id, conversation_id: message.conversationId, sender_id: message.senderId, body: message.body, reply_to_message_id: message.replyToMessageId, created_at: message.createdAt.toISOString(), attachments };
+  const body = await readProtectedBody(message);
+  return { id: message.id, conversation_id: message.conversationId, sender_id: message.senderId, body, reply_to_message_id: message.replyToMessageId, created_at: message.createdAt.toISOString(), attachments };
+}
+
+async function readProtectedBody(message: typeof messages.$inferSelect) {
+  assertDataProtectionConfigured();
+  const context = { messageId: message.id, conversationId: message.conversationId, senderId: message.senderId, clientMessageId: message.clientMessageId };
+  const body = decryptMessageBody(message.body, context);
+  if (!message.body.startsWith("v1:")) {
+    await getDb().update(messages).set({ body: encryptMessageBody(body, context), updatedAt: new Date() }).where(eq(messages.id, message.id));
+  }
+  return body;
 }
 export async function listMessages(userId: string, conversationId: string, limit: number, cursorValue?: string) { await requireMembership(userId, conversationId); const cursor = decodeCursor(cursorValue); const rows = await getDb().select().from(messages).where(and(eq(messages.conversationId, conversationId), isNull(messages.deletedAt), cursor ? or(lt(messages.createdAt, new Date(cursor.created_at)), and(eq(messages.createdAt, new Date(cursor.created_at)), lt(messages.id, cursor.id))) : undefined)).orderBy(desc(messages.createdAt), desc(messages.id)).limit(limit + 1); const page = rows.slice(0, limit); const last = page.at(-1); return { data: await Promise.all(page.map(hydrateMessage)), hasMore: rows.length > limit, nextCursor: rows.length > limit && last ? encodeCursor({ created_at: last.createdAt.toISOString(), id: last.id }) : null }; }
 export async function sendMessage(userId: string, conversationId: string, input: { body: string; client_message_id: string; reply_to_message_id?: string; media_asset_ids: string[] }) { await requireMembership(userId, conversationId); const message = await getDb().transaction(async (tx) => { const [existing] = await tx.select().from(messages).where(and(eq(messages.senderId, userId), eq(messages.clientMessageId, input.client_message_id))).limit(1); if (existing) return existing; if (input.media_asset_ids.length) { const assets = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(and(inArray(mediaAssets.id, input.media_asset_ids), eq(mediaAssets.ownerId, userId), eq(mediaAssets.purpose, "message"), eq(mediaAssets.status, "ready"), isNull(mediaAssets.deletedAt))); if (assets.length !== new Set(input.media_asset_ids).size) throw new AppError(422, "VALIDATION_ERROR", "One or more message attachments are invalid.", { media_asset_ids: "Upload valid message attachments first." }); }
-    const [created] = await tx.insert(messages).values({ conversationId, senderId: userId, clientMessageId: input.client_message_id, body: input.body, replyToMessageId: input.reply_to_message_id }).returning();
+    const messageId = randomUUID();
+    const encryptedBody = encryptMessageBody(input.body, { messageId, conversationId, senderId: userId, clientMessageId: input.client_message_id });
+    const [created] = await tx.insert(messages).values({ id: messageId, conversationId, senderId: userId, clientMessageId: input.client_message_id, body: encryptedBody, replyToMessageId: input.reply_to_message_id }).returning();
+    if (!created) throw new AppError(500, "INTERNAL_ERROR", "The message could not be created.");
     if (input.media_asset_ids.length) { await tx.insert(messageAttachments).values(input.media_asset_ids.map((mediaAssetId, index) => ({ messageId: created!.id, mediaAssetId, position: String(index) }))); await tx.update(mediaAssets).set({ attachedAt: new Date(), expiresAt: null, updatedAt: new Date() }).where(inArray(mediaAssets.id, input.media_asset_ids)); }
     await tx.update(conversations).set({ lastMessageAt: created!.createdAt, updatedAt: new Date() }).where(eq(conversations.id, conversationId)); return created!;
   });

@@ -54,3 +54,9 @@ export function assertMediaConfigured() {
   ]);
   return value;
 }
+
+export function assertDataProtectionConfigured() {
+  const value = config();
+  if (!value.encryptionKey) throw new Error("Missing required environment variable: ENCRYPTION_KEY");
+  return value;
+}
