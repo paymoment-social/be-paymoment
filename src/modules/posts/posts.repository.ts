@@ -236,7 +236,7 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     })));
   }
   return {
-    data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)),
+    data: hydrated.filter((post): post is NonNullable<typeof post> => Boolean(post)),
     hasMore,
     nextCursor: hasMore && cursorRow?.publishedAt ? encodeCursor({ created_at: cursorRow.publishedAt.toISOString(), id: cursorRow.id, ...(mode !== "latest" ? { score: Number(cursorRow.score), ranking_at: rankingAt.toISOString() } : {}) }) : null,
     snapshotAt: new Date().toISOString(),
@@ -245,8 +245,9 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
 
 export async function listUserPosts(authorId: string, viewerId: string, limit: number, cursorValue?: string) {
   const cursor = decodeCursor(cursorValue);
-  const rows = await getDb().select({ id: posts.id, publishedAt: posts.publishedAt }).from(posts).where(and(
-    eq(posts.authorId, authorId),
+  const activityAt = sql<Date>`coalesce(${reposts.createdAt}, ${posts.publishedAt}, ${posts.createdAt})`;
+  const rows = await getDb().select({ id: posts.id, publishedAt: posts.publishedAt, activityAt, reposted: sql<boolean>`${reposts.userId} is not null` }).from(posts).leftJoin(reposts, and(eq(reposts.postId, posts.id), eq(reposts.userId, authorId))).where(and(
+    or(eq(posts.authorId, authorId), eq(reposts.userId, authorId)),
     eq(posts.status, "published"),
     isNull(posts.deletedAt),
     authorId === viewerId ? undefined : or(
@@ -254,15 +255,20 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
       and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} profile_follow where profile_follow.follower_id = ${viewerId} and profile_follow.following_id = ${authorId} and profile_follow.status = 'active')`),
     ),
     sql`not exists (select 1 from ${userBlocks} profile_block where (profile_block.blocker_id = ${viewerId} and profile_block.blocked_id = ${authorId}) or (profile_block.blocker_id = ${authorId} and profile_block.blocked_id = ${viewerId}))`,
-    cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
-  )).orderBy(desc(posts.publishedAt), desc(posts.id)).limit(limit + 1);
+    cursor ? or(lt(activityAt, new Date(cursor.created_at)), and(eq(activityAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
+  )).orderBy(desc(activityAt), desc(posts.id)).limit(limit + 1);
   const page = rows.slice(0, limit);
-  const hydrated = await Promise.all(page.map((row) => hydratePost(row.id, viewerId)));
+  const repostAuthor = page.some((row) => row.reposted) ? await getUserProfile(authorId, viewerId) : null;
+  const hydrated = await Promise.all(page.map(async (row) => {
+    const post = await hydratePost(row.id, viewerId);
+    if (!post) return null;
+    return { ...post, activity_type: row.reposted ? "repost" : "post", activity_at: row.activityAt.toISOString(), reposted_by: row.reposted ? repostAuthor : null };
+  }));
   const last = page.at(-1);
   return {
-    data: hydrated.filter((post): post is Record<string, unknown> => Boolean(post)),
+    data: hydrated.filter((post): post is NonNullable<typeof post> => Boolean(post)),
     hasMore: rows.length > limit,
-    nextCursor: rows.length > limit && last?.publishedAt ? encodeCursor({ created_at: last.publishedAt.toISOString(), id: last.id }) : null,
+    nextCursor: rows.length > limit && last ? encodeCursor({ created_at: last.activityAt.toISOString(), id: last.id }) : null,
   };
 }
 
