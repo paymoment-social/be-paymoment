@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const mediaPurposeSchema = z.enum(["avatar", "post", "reply", "article", "message"]);
+export const mediaPurposeSchema = z.enum(["avatar", "cover", "post", "reply", "article", "message"]);
 
 export const mediaMetadataSchema = z.object({
   purpose: mediaPurposeSchema,

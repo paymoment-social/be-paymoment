@@ -65,6 +65,8 @@ export async function getUserProfile(userId: string, viewerId: string): Promise<
     onboardingCompleted: users.onboardingCompleted,
     joinedAt: users.createdAt,
     bio: userProfiles.bio,
+    coverUrl: userProfiles.coverUrl,
+    coverPosition: userProfiles.coverPosition,
     birthDate: userProfiles.birthDate,
     location: userProfiles.location,
     websiteUrl: userProfiles.websiteUrl,
@@ -110,6 +112,8 @@ export async function getUserProfile(userId: string, viewerId: string): Promise<
     display_name: base.displayName,
     username: base.username,
     avatar_url: base.avatarUrl,
+    cover_url: base.coverUrl ?? null,
+    cover_position: (base.coverPosition === "top" || base.coverPosition === "bottom" ? base.coverPosition : "center") as "top" | "center" | "bottom",
     bio: base.bio ?? "",
     ...(isSelf ? { birth_date: base.birthDate } : {}),
     location: base.location ?? null,
@@ -208,6 +212,8 @@ export async function persistProfileUpdate(userId: string, data: ProfileMutation
 
     const profileSet = {
       ...(data.bio !== undefined ? { bio: data.bio } : {}),
+      ...(data.coverUrl !== undefined ? { coverUrl: data.coverUrl } : {}),
+      ...(data.coverPosition !== undefined ? { coverPosition: data.coverPosition } : {}),
       ...(data.birthDate !== undefined ? { birthDate: data.birthDate } : {}),
       ...(data.location !== undefined ? { location: data.location } : {}),
       ...(data.websiteUrl !== undefined ? { websiteUrl: data.websiteUrl } : {}),

@@ -64,6 +64,13 @@
       "when": 1786329000000,
       "tag": "0008_early_access_reward",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786330800000,
+      "tag": "0009_profile_cover",
+      "breakpoints": true
     }
   ]
 }

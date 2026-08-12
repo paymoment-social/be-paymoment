@@ -10,6 +10,7 @@ import type { ValidatedMedia } from "./media.types";
 
 const MIME_RULES: Record<MediaPurpose, { maxBytes: number; allowed: string[] }> = {
   avatar: { maxBytes: 5 * 1024 * 1024, allowed: ["image/jpeg", "image/png", "image/webp"] },
+  cover: { maxBytes: 10 * 1024 * 1024, allowed: ["image/jpeg", "image/png", "image/webp"] },
   post: { maxBytes: 50 * 1024 * 1024, allowed: ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "video/quicktime"] },
   reply: { maxBytes: 25 * 1024 * 1024, allowed: ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/webm", "video/quicktime"] },
   article: { maxBytes: 10 * 1024 * 1024, allowed: ["image/jpeg", "image/png", "image/webp", "image/gif"] },

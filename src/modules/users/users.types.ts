@@ -6,6 +6,8 @@ export type UserProfileResult = {
   display_name: string;
   username: string | null;
   avatar_url: string | null;
+  cover_url: string | null;
+  cover_position: "top" | "center" | "bottom";
   bio: string;
   birth_date?: string | null;
   location: string | null;
@@ -37,6 +39,8 @@ export type ProfileMutationData = {
   username?: string;
   usernameNormalized?: string;
   avatarUrl?: string | null;
+  coverUrl?: string | null;
+  coverPosition?: "top" | "center" | "bottom";
   bio?: string;
   birthDate?: string | null;
   location?: string | null;

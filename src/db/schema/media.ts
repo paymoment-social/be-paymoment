@@ -15,7 +15,7 @@ import { timestamps } from "./base";
 import { users } from "./identity";
 
 export const mediaStatusEnum = pgEnum("media_status", ["uploading", "ready", "failed", "deleted"]);
-export const mediaPurposeEnum = pgEnum("media_purpose", ["avatar", "post", "reply", "article", "message"]);
+export const mediaPurposeEnum = pgEnum("media_purpose", ["avatar", "cover", "post", "reply", "article", "message"]);
 
 export const mediaAssets = pgTable("media_assets", {
   id: uuid("id").defaultRandom().primaryKey(),

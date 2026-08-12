@@ -96,6 +96,8 @@ export async function updateMyProfile(userId: string, input: UpdateProfileInput)
     ...(input.website_url !== undefined ? { websiteUrl: input.website_url || null } : {}),
     ...(input.podcast_url !== undefined ? { podcastUrl: input.podcast_url || null } : {}),
     ...(input.avatar_url !== undefined ? { avatarUrl: input.avatar_url || null } : {}),
+    ...(input.cover_url !== undefined ? { coverUrl: input.cover_url || null } : {}),
+    ...(input.cover_position !== undefined ? { coverPosition: input.cover_position } : {}),
     ...(input.interest_slugs !== undefined ? { interestSlugs: [...new Set(input.interest_slugs.map((slug) => slug.toLowerCase()))] } : {}),
     ...(input.show_paybox_badge !== undefined ? { showPayboxBadge: input.show_paybox_badge } : {}),
     ...(input.show_recent_views !== undefined ? { showRecentViews: input.show_recent_views } : {}),

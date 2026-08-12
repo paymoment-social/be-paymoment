@@ -54,21 +54,14 @@ export function assertAuthConfigured() {
 
 export function assertMediaConfigured() {
   const value = config();
-  if (value.r2Endpoint || value.r2Bucket || value.r2AccessKeyId || value.r2SecretAccessKey || value.r2PublicUrl) {
-    assertValues([
-      ["R2_ENDPOINT", value.r2Endpoint],
-      ["R2_BUCKET", value.r2Bucket],
-      ["R2_ACCESS_KEY_ID", value.r2AccessKeyId],
-      ["R2_SECRET_ACCESS_KEY", value.r2SecretAccessKey],
-      ["R2_PUBLIC_URL", value.r2PublicUrl],
-    ]);
-    return { ...value, mediaProvider: "r2" as const };
-  }
   assertValues([
-    ["PINATA_JWT", value.pinataJwt],
-    ["PINATA_GATEWAY_URL", value.pinataGatewayUrl],
+    ["R2_ENDPOINT", value.r2Endpoint],
+    ["R2_BUCKET", value.r2Bucket],
+    ["R2_ACCESS_KEY_ID", value.r2AccessKeyId],
+    ["R2_SECRET_ACCESS_KEY", value.r2SecretAccessKey],
+    ["R2_PUBLIC_URL", value.r2PublicUrl],
   ]);
-  return { ...value, mediaProvider: "pinata" as const };
+  return { ...value, mediaProvider: "r2" as const };
 }
 
 export function assertPinataConfigured() {

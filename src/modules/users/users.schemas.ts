@@ -5,6 +5,7 @@ const username = z.string().trim().min(3, "Username must contain at least 3 char
 const displayName = z.string().min(1, "Display name is required.").max(80, "Display name cannot exceed 80 characters.");
 const bio = z.string().max(160, "Bio cannot exceed 160 characters.");
 const interestSlugs = z.array(z.string().trim().min(1).max(80)).max(10, "Select no more than 10 interests.");
+const coverPosition = z.enum(["top", "center", "bottom"]);
 
 export const onboardingSchema = z.object({
   display_name: displayName,
@@ -27,6 +28,8 @@ export const updateProfileSchema = z.object({
   website_url: optionalUrl,
   podcast_url: optionalUrl,
   avatar_url: optionalUrl,
+  cover_url: optionalUrl,
+  cover_position: coverPosition.optional(),
   interest_slugs: interestSlugs.optional(),
   show_paybox_badge: z.boolean().optional(),
   show_recent_views: z.boolean().optional(),

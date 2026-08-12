@@ -71,6 +71,8 @@ export const sessions = pgTable("sessions", {
 export const userProfiles = pgTable("user_profiles", {
   userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   bio: varchar("bio", { length: 160 }).default("").notNull(),
+  coverUrl: text("cover_url"),
+  coverPosition: varchar("cover_position", { length: 16 }).default("center").notNull(),
   birthDate: date("birth_date"),
   location: varchar("location", { length: 120 }),
   websiteUrl: text("website_url"),
