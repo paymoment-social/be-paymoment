@@ -14,6 +14,37 @@ import { AppError } from "../../lib/errors";
 
 const base64PayloadSchema = z.string().min(4).max(14 * 1024 * 1024).regex(/^[A-Za-z0-9+/]*={0,2}$/, "Media must be standard base64 without a data URL prefix.");
 
+function markdownText(value: unknown) {
+  const markdownCharacters = "\\`*_{}[]()#+-.!|>";
+  return [...String(value ?? "")].map((character) => markdownCharacters.includes(character) ? `\\${character}` : character).join("").replace(/\n/g, "  \n");
+}
+
+function momentCard(post: Record<string, any>) {
+  const author = post.author ?? {};
+  const handle = author.username ? `@${author.username}` : "@paymoment.user";
+  const media = Array.isArray(post.media) ? post.media.find((item: any) => item?.url)?.url : undefined;
+  const link = `${config().frontendUrl.replace(/\/$/, "")}/post/${encodeURIComponent(String(post.id))}`;
+  return [
+    `### ${markdownText(author.display_name ?? "PayMoment user")} · ${markdownText(handle)}`,
+    markdownText(post.body ?? ""),
+    media ? `![PayMoment attachment](${media})` : "",
+    `[Open on PayMoment](${link})`,
+    `♥ ${post.counts?.likes ?? 0}  ·  ↩ ${post.counts?.replies ?? 0}  ·  🔁 ${post.counts?.reposts ?? 0}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+function socialFeedResult(feed: { data: Array<Record<string, any>>; nextCursor: string | null; hasMore: boolean }) {
+  return {
+    content: [{ type: "text" as const, text: feed.data.length ? feed.data.map(momentCard).join("\n\n---\n\n") : "No Moments found." }],
+    structuredContent: {
+      type: "paymoment.social_feed",
+      brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl },
+      cards: feed.data,
+      pagination: { next_cursor: feed.nextCursor, has_more: feed.hasMore },
+    },
+  };
+}
+
 async function auditMcpAction(userId: string, action: string, entityType: string, entityId?: string, metadata: Record<string, unknown> = {}) {
   await getDb().insert(auditLogs).values({ actorUserId: userId, actorType: "mcp_agent", action, entityType, entityId, metadata });
 }
@@ -22,7 +53,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
   const server = new McpServer({ name: "paymoment", version: "1.0.0" }, { capabilities: { logging: {} } });
   if (scopes.includes("paymoment.read")) {
     server.registerTool("paymoment_get_profile", { title: "Get PayMoment profile", description: "Read the authenticated PayMoment profile and entitlement.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {} }, async () => { const profile = await getMyProfile(userId); await auditMcpAction(userId, "mcp.profile.read", "user", userId); return { content: [{ type: "text", text: JSON.stringify(profile) }] }; });
-    server.registerTool("paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return { content: [{ type: "text", text: JSON.stringify(feed) }] }; });
+    server.registerTool("paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments as PayMoment social cards with author, media, engagement, and links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return socialFeedResult(feed); });
   }
   if (scopes.includes("paymoment.write")) {
     server.registerTool("paymoment_upload_post_media", {
@@ -41,7 +72,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
       await auditMcpAction(userId, "mcp.media.upload", "media_asset", media.id, { mime_type, byte_size: media.byteSize });
       return { content: [{ type: "text", text: JSON.stringify({ media }) }] };
     });
-    server.registerTool("paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment for the authenticated PayMoment user. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) } }, async ({ body, media_asset_ids }) => { const moment = await createMoment(userId, { kind: "moment", body, visibility: "public", media_asset_ids }, "mcp_agent"); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: media_asset_ids.length }); return { content: [{ type: "text", text: JSON.stringify(moment) }] }; });
+    server.registerTool("paymoment_create_moment", { title: "Create PayMoment Moment", description: "Publish a public Moment for the authenticated PayMoment user. Ask for confirmation before calling this tool.", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, inputSchema: { body: z.string().min(1).max(500), media_asset_ids: z.array(z.uuid()).max(4).default([]) } }, async ({ body, media_asset_ids }) => { const moment = await createMoment(userId, { kind: "moment", body, visibility: "public", media_asset_ids }, "mcp_agent"); const momentId = typeof moment.id === "string" ? moment.id : undefined; await auditMcpAction(userId, "mcp.moment.create", "post", momentId, { media_count: media_asset_ids.length }); return { content: [{ type: "text" as const, text: momentCard(moment as Record<string, any>) }], structuredContent: { type: "paymoment.social_post", brand: { name: "PayMoment", accent: "violet", website: config().frontendUrl }, card: moment } }; });
   }
   return server;
 }
