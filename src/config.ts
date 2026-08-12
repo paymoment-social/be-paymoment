@@ -71,6 +71,15 @@ export function assertMediaConfigured() {
   return { ...value, mediaProvider: "pinata" as const };
 }
 
+export function assertPinataConfigured() {
+  const value = config();
+  assertValues([
+    ["PINATA_JWT", value.pinataJwt],
+    ["PINATA_GATEWAY_URL", value.pinataGatewayUrl],
+  ]);
+  return value;
+}
+
 export function assertDataProtectionConfigured() {
   const value = config();
   if (!value.encryptionKey) throw new Error("Missing required environment variable: ENCRYPTION_KEY");

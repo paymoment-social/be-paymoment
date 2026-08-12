@@ -1,4 +1,4 @@
-import { assertMediaConfigured } from "../../config";
+import { assertPinataConfigured } from "../../config";
 import { AppError } from "../../lib/errors";
 import type { PinataUpload } from "./media.types";
 
@@ -7,7 +7,7 @@ type PinataUploadResponse = {
 };
 
 export async function uploadPublicFile(file: File, name: string, metadata: Record<string, string>): Promise<PinataUpload> {
-  const { pinataJwt } = assertMediaConfigured();
+  const { pinataJwt } = assertPinataConfigured();
   const body = new FormData();
   body.set("network", "public");
   body.set("file", file, name);
@@ -34,7 +34,7 @@ export async function uploadPublicFile(file: File, name: string, metadata: Recor
 }
 
 export async function deletePublicFile(providerId: string) {
-  const { pinataJwt } = assertMediaConfigured();
+  const { pinataJwt } = assertPinataConfigured();
   try {
     const response = await fetch(`https://api.pinata.cloud/v3/files/public/${encodeURIComponent(providerId)}`, {
       method: "DELETE",
