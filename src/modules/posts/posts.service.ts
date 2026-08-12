@@ -31,6 +31,7 @@ import {
   setPostLike,
   setReplyLike,
   setRepost,
+  setPostPinned,
   softDeletePost,
   softDeleteReply,
   updateArticle,
@@ -88,6 +89,13 @@ export async function createMoment(userId: string, input: CreatePostInput, actor
 
 export async function getMoment(userId: string, id: string) {
   return (await visiblePost(userId, id)).post;
+}
+
+export async function pinMoment(userId: string, value: string, pinned: boolean) {
+  const id = validId(value, "Moment");
+  const updated = await setPostPinned(userId, id, pinned);
+  if (!updated) throw new AppError(404, "NOT_FOUND", "Only your published Moment can be pinned.");
+  return { post_id: id, pinned: Boolean(updated.pinnedAt) };
 }
 
 export async function getLatestFeed(userId: string, limit: number, cursor?: string, mode: "latest" | "top" | "for_you" = "latest") {

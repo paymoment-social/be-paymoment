@@ -45,6 +45,7 @@ export const posts = pgTable("posts", {
   bookmarkCount: integer("bookmark_count").default(0).notNull(),
   viewCount: bigint("view_count", { mode: "number" }).default(0).notNull(),
   publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow(),
+  pinnedAt: timestamp("pinned_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   ...timestamps,
 }, (table) => [

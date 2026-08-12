@@ -151,6 +151,7 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
     created_at: post.createdAt.toISOString(),
     updated_at: post.updatedAt.toISOString(),
     published_at: post.publishedAt?.toISOString() ?? null,
+    pinned: Boolean(post.pinnedAt),
     is_owner: post.authorId === viewerId,
   };
 }
@@ -256,7 +257,7 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
     ),
     sql`not exists (select 1 from ${userBlocks} profile_block where (profile_block.blocker_id = ${viewerId} and profile_block.blocked_id = ${authorId}) or (profile_block.blocker_id = ${authorId} and profile_block.blocked_id = ${viewerId}))`,
     cursor ? or(lt(activityAt, new Date(cursor.created_at)), and(eq(activityAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
-  )).orderBy(desc(activityAt), desc(posts.id)).limit(limit + 1);
+  )).orderBy(sql`(${posts.pinnedAt} is not null) desc`, desc(posts.pinnedAt), desc(activityAt), desc(posts.id)).limit(limit + 1);
   const page = rows.slice(0, limit);
   const repostAuthor = page.some((row) => row.reposted) ? await getUserProfile(authorId, viewerId) : null;
   const hydrated = await Promise.all(page.map(async (row) => {
@@ -271,6 +272,16 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
     hasMore: rows.length > limit,
     nextCursor: rows.length > limit && last ? encodeCursor({ created_at: new Date(last.activityAt).toISOString(), id: last.id }) : null,
   };
+}
+
+export async function setPostPinned(authorId: string, postId: string, pinned: boolean) {
+  return getDb().transaction(async (tx) => {
+    const [owned] = await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.id, postId), eq(posts.authorId, authorId), eq(posts.status, "published"), isNull(posts.deletedAt))).limit(1);
+    if (!owned) return null;
+    if (pinned) await tx.update(posts).set({ pinnedAt: null, updatedAt: new Date() }).where(and(eq(posts.authorId, authorId), isNull(posts.deletedAt)));
+    const [updated] = await tx.update(posts).set({ pinnedAt: pinned ? new Date() : null, updatedAt: new Date() }).where(eq(posts.id, postId)).returning({ id: posts.id, pinnedAt: posts.pinnedAt });
+    return updated ?? null;
+  });
 }
 
 export async function countNewFeedPosts(viewerId: string, since: Date) {

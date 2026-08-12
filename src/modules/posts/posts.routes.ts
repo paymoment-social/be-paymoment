@@ -45,6 +45,7 @@ import {
   registerShare,
   registerView,
   repostMoment,
+  pinMoment,
   unvotePoll,
 } from "./posts.service";
 
@@ -122,6 +123,16 @@ postsRoutes.post("/:id/view", async (c) => {
   const session = await requireSession(c);
   await enforceRateLimit(c, "post.view", session.user.id, 600, 60 * 60);
   return success(c, await registerView(session.user.id, c.req.param("id")));
+});
+
+postsRoutes.put("/:id/pin", async (c) => {
+  const session = await requireSession(c);
+  return success(c, await pinMoment(session.user.id, c.req.param("id"), true));
+});
+
+postsRoutes.delete("/:id/pin", async (c) => {
+  const session = await requireSession(c);
+  return success(c, await pinMoment(session.user.id, c.req.param("id"), false));
 });
 
 postsRoutes.post("/:id/share", async (c) => {
