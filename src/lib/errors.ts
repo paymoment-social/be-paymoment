@@ -4,6 +4,23 @@ import type { ErrorCode } from "../contracts/common";
 
 type FieldErrors = Record<string, string>;
 
+function databaseErrorDetails(error: unknown) {
+  const source = error && typeof error === "object" ? error as Record<string, unknown> : {};
+  const cause = source.cause && typeof source.cause === "object" ? source.cause as Record<string, unknown> : {};
+  const value = (key: string) => source[key] ?? cause[key];
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    cause: cause.message ?? cause,
+    code: value("code"),
+    detail: value("detail"),
+    hint: value("hint"),
+    constraint: value("constraint"),
+    column: value("column"),
+    table: value("table"),
+    schema: value("schema"),
+  };
+}
+
 export class AppError extends Error {
   constructor(
     public readonly status: ContentfulStatusCode,
@@ -34,6 +51,7 @@ export function handleError(error: Error, c: Context) {
     message: "Unhandled API error",
     request_id: c.get("requestId"),
     error_name: error.name,
+    database: databaseErrorDetails(error),
   }));
   const internal = new AppError(500, "INTERNAL_ERROR", "An unexpected error occurred.");
   return c.json(errorPayload(c, internal), 500);
