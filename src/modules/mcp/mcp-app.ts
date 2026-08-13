@@ -56,7 +56,7 @@ type Profile = {
   entitlement?: { verified?: boolean; points_balance?: number };
 };
 
-const app = new App({ name: "PayMoment Social", version: "1.3.0" });
+const app = new App({ name: "PayMoment Social", version: "1.4.0" });
 const root = document.querySelector<HTMLElement>("#app")!;
 
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
@@ -110,7 +110,7 @@ function rewardMarkup(reward: NonNullable<ToolResult["structuredContent"]>["rewa
 }
 
 function actionMarkup(action: NonNullable<ToolResult["structuredContent"]>["action"]) {
-  return `<article class="card"><div class="card-head"><img class="avatar" src="${escapeHtml(boxLogoUrl)}" alt="PayBox" /><div class="name">${escapeHtml(action?.title || "PayMoment update")}</div></div><pre class="body">${escapeHtml(JSON.stringify(action?.data ?? {}, null, 2))}</pre></article>`;
+  return `<article class="card"><div class="card-head"><img class="avatar" src="${escapeHtml(logoUrl)}" alt="PayMoment" /><div class="author"><div class="name">${escapeHtml(action?.title || "PayMoment updated")}</div><div class="handle">Your change has been saved</div></div></div><div class="body">This action is now reflected in your PayMoment account.</div></article>`;
 }
 
 function relativeTime(value?: string) {
@@ -201,7 +201,8 @@ function render(result?: ToolResult) {
   const isNotifications = data?.type === "paymoment.notifications";
   const isConversations = data?.type === "paymoment.conversations";
   const isSearch = data?.type === "paymoment.search";
-  const content = profile ? profileMarkup(profile, data?.brand?.website) : data?.reward ? rewardMarkup(data.reward) : isNotifications ? notificationMarkup(data.notifications, data?.brand?.website, data.filter, data.pagination?.has_more) : isConversations ? conversationMarkup(data.conversations, data?.brand?.website) : data?.action ? actionMarkup(data.action) : isSearch ? searchMarkup(data.results, data?.brand?.website) : cards.length ? cards.map((card) => cardMarkup(card, data?.brand?.website)).join("") : `<div class="empty">No Moments to show yet.</div>`;
+  const postCards = cards.map((card) => cardMarkup(card, data?.brand?.website)).join("");
+  const content = profile ? profileMarkup(profile, data?.brand?.website) : data?.reward ? rewardMarkup(data.reward) : isNotifications ? notificationMarkup(data.notifications, data?.brand?.website, data.filter, data.pagination?.has_more) : isConversations ? conversationMarkup(data.conversations, data?.brand?.website) : data?.action ? `${actionMarkup(data.action)}${postCards}` : isSearch ? searchMarkup(data.results, data?.brand?.website) : cards.length ? postCards : `<div class="empty">No Moments to show yet.</div>`;
   const heading = profile ? "Profile" : data?.reward ? "Box" : isNotifications ? "Notifications" : isConversations ? "Messages" : data?.action ? "Update" : isSearch ? "Search" : "Social";
   const notificationsUrl = isNotifications && safeUrl(data?.brand?.website) ? `${safeUrl(data?.brand?.website).replace(/\/$/, "")}/notifications` : "";
   const messagesUrl = isConversations && safeUrl(data?.brand?.website) ? `${safeUrl(data?.brand?.website).replace(/\/$/, "")}/messages` : "";
