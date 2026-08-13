@@ -130,8 +130,8 @@ async function createMomentWithTrace(userId: string, body: string, mediaAssetIds
 }
 
 function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymoment.write"]) {
-  const server = new McpServer({ name: "paymoment", version: "1.0.0" }, { capabilities: { logging: {} } });
-  const socialResourceUri = "ui://paymoment/social-v3.html";
+  const server = new McpServer({ name: "paymoment", version: "1.1.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
+  const socialResourceUri = "ui://paymoment/social-v4.html";
   const mediaOrigin = new URL(config().mcpIssuerUrl).origin;
   registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8"), _meta: { ui: { csp: { resourceDomains: [mediaOrigin] } } } }] }));
   if (scopes.includes("paymoment.read")) {
