@@ -180,11 +180,19 @@ function conversationMarkup(conversations: ConversationItem[] | undefined, websi
 
 function searchMarkup(results: NonNullable<ToolResult["structuredContent"]>["results"], website?: string) {
   if (!results) return `<div class="empty">No results found.</div>`;
+  const topicCards = (results.topics ?? []).map((topic) => {
+    const value = topic as { label?: unknown; slug?: unknown; posts?: unknown; post_count?: unknown };
+    const slug = String(value.slug ?? value.label ?? "").replace(/^#/, "").trim();
+    const label = String(value.label ?? (slug ? `#${slug}` : "Hashtag"));
+    const posts = value.posts ?? value.post_count ?? 0;
+    const href = slug && safeUrl(website) ? `${safeUrl(website).replace(/\/$/, "")}/discover?q=${encodeURIComponent(`#${slug}`)}` : "";
+    return `<article class="card"><div class="card-head"><div class="notification-glyph">#</div><div class="author"><div class="name">${escapeHtml(label)}</div><div class="handle">${escapeHtml(posts)} ${Number(posts) === 1 ? "post" : "posts"}</div></div><div class="card-actions">${href ? `<button class="button small" data-open="${escapeHtml(href)}">Explore</button>` : ""}</div></div></article>`;
+  });
   const sections = [
     ...(results.people?.length ? [`<section class="card"><div class="card-head"><div class="handle">People</div></div><pre class="body">${escapeHtml(JSON.stringify(results.people, null, 2))}</pre></section>`] : []),
     ...(results.moments?.length ? results.moments.map((card) => cardMarkup(card, website)) : []),
     ...(results.articles?.length ? results.articles.map((card) => cardMarkup(card, website)) : []),
-    ...(results.topics?.length ? [`<section class="card"><div class="card-head"><div class="handle">Hashtags</div></div><pre class="body">${escapeHtml(JSON.stringify(results.topics, null, 2))}</pre></section>`] : []),
+    ...topicCards,
   ];
   return sections.length ? sections.join("") : `<div class="empty">No results found.</div>`;
 }

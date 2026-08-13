@@ -207,10 +207,13 @@ function momentCard(post: Record<string, any>) {
   const author = post.author ?? {};
   const handle = author.username ? `@${author.username}` : "@paymoment.user";
   const media = Array.isArray(post.media) ? post.media.find((item: any) => item?.url)?.url : undefined;
+  const pollOptions = Array.isArray(post.poll?.options) ? post.poll.options.map((option: Record<string, unknown>, index: number) => `Option ${index + 1}: ${markdownText(option.label ?? "Untitled option")} (option_id: ${String(option.id ?? "")})`) : [];
   const link = `${config().frontendUrl.replace(/\/$/, "")}/post/${encodeURIComponent(String(post.id))}`;
   return [
     `### ${markdownText(author.display_name ?? "PayMoment user")} · ${markdownText(handle)}`,
     markdownText(post.body ?? ""),
+    post.poll?.question ? `**Poll:** ${markdownText(post.poll.question)}` : "",
+    ...pollOptions,
     media ? `![PayMoment attachment](${media})` : "",
     `[Open on PayMoment](${link})`,
     `♥ ${post.counts?.likes ?? 0}  ·  ↩ ${post.counts?.replies ?? 0}  ·  🔁 ${post.counts?.reposts ?? 0}`,

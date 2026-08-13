@@ -366,8 +366,17 @@ export async function updatePost(authorId: string, postId: string, expectedVersi
 }
 
 export async function softDeletePost(authorId: string, postId: string) {
-  const [deleted] = await getDb().update(posts).set({ status: "deleted", body: "", deletedAt: new Date(), version: sql`${posts.version} + 1`, updatedAt: new Date() }).where(and(eq(posts.id, postId), eq(posts.authorId, authorId), ne(posts.status, "deleted"), isNull(posts.deletedAt))).returning();
-  return deleted ?? null;
+  return getDb().transaction(async (tx) => {
+    const [deleted] = await tx.update(posts).set({ status: "deleted", body: "", deletedAt: new Date(), version: sql`${posts.version} + 1`, updatedAt: new Date() }).where(and(eq(posts.id, postId), eq(posts.authorId, authorId), ne(posts.status, "deleted"), isNull(posts.deletedAt))).returning();
+    if (!deleted) return null;
+
+    const attachedMedia = await tx.select({ id: postMedia.mediaAssetId }).from(postMedia).where(eq(postMedia.postId, postId));
+    await tx.delete(postMedia).where(eq(postMedia.postId, postId));
+    if (attachedMedia.length) {
+      await tx.update(mediaAssets).set({ attachedAt: null, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), updatedAt: new Date() }).where(inArray(mediaAssets.id, attachedMedia.map((asset) => asset.id)));
+    }
+    return deleted;
+  });
 }
 
 export async function createArticle(authorId: string, input: CreateArticleInput) {
