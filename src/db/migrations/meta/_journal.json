@@ -85,6 +85,13 @@
       "when": 1786338000000,
       "tag": "0011_single_profile_pin",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786341600000,
+      "tag": "0012_disable_private_profiles",
+      "breakpoints": true
     }
   ]
 }

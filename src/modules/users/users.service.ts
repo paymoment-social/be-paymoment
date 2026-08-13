@@ -101,7 +101,7 @@ export async function updateMyProfile(userId: string, input: UpdateProfileInput)
     ...(input.interest_slugs !== undefined ? { interestSlugs: [...new Set(input.interest_slugs.map((slug) => slug.toLowerCase()))] } : {}),
     ...(input.show_paybox_badge !== undefined ? { showPayboxBadge: input.show_paybox_badge } : {}),
     ...(input.show_recent_views !== undefined ? { showRecentViews: input.show_recent_views } : {}),
-    ...(input.private_profile !== undefined ? { privateProfile: input.private_profile } : {}),
+    privateProfile: false,
     ...(input.allow_messages !== undefined ? { allowMessages: input.allow_messages } : {}),
   };
   if (input.username !== undefined) {
@@ -127,8 +127,8 @@ function assertDifferentUsers(actorId: string, targetValue: string) {
 export async function follow(actorId: string, targetValue: string) {
   const targetId = assertDifferentUsers(actorId, targetValue);
   const status = await setFollowRelationship(actorId, targetId);
-  await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: status === "pending" ? `follow-request:${actorId}:${targetId}` : `follow:${actorId}:${targetId}`, payload: { action: status === "pending" ? "requested" : "following" } });
-  return { user_id: targetId, following: status === "active", requested: status === "pending", status };
+  await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: `follow:${actorId}:${targetId}`, payload: { action: "following" } });
+  return { user_id: targetId, following: true, requested: false, status };
 }
 
 export async function unfollow(actorId: string, targetValue: string) {

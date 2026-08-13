@@ -220,7 +220,7 @@ export async function persistProfileUpdate(userId: string, data: ProfileMutation
       ...(data.podcastUrl !== undefined ? { podcastUrl: data.podcastUrl } : {}),
       ...(data.showPayboxBadge !== undefined ? { showPayboxBadge: data.showPayboxBadge } : {}),
       ...(data.showRecentViews !== undefined ? { showRecentViews: data.showRecentViews } : {}),
-      ...(data.privateProfile !== undefined ? { privateProfile: data.privateProfile } : {}),
+    privateProfile: false,
       ...(data.allowMessages !== undefined ? { allowMessages: data.allowMessages } : {}),
       updatedAt: new Date(),
     };
@@ -245,7 +245,7 @@ export async function setFollowRelationship(followerId: string, followingId: str
       and(eq(userBlocks.blockerId, followingId), eq(userBlocks.blockedId, followerId)),
     )).limit(1);
     if (blocked) throw new AppError(403, "FORBIDDEN", "A follow relationship cannot be created between blocked users.");
-    const status = target.privateProfile ? "pending" as const : "active" as const;
+    const status = "active" as const;
     await tx.insert(follows).values({ followerId, followingId, status }).onConflictDoUpdate({
       target: [follows.followerId, follows.followingId], set: { status, updatedAt: new Date() },
     });
