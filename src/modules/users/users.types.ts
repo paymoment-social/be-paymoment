@@ -27,6 +27,7 @@ export type UserProfileResult = {
   entitlement: {
     verified: boolean;
     verified_at: string | null;
+    verified_achievement_seen_at?: string | null;
     points_balance: number;
     verified_threshold: number;
   };

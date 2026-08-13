@@ -13,6 +13,7 @@ import {
   listPendingFollowerIds,
   listRelationshipIds,
   muteUser,
+  persistVerifiedAchievementSeen,
   persistOnboarding,
   persistProfileUpdate,
   removeFollowRelationship,
@@ -47,6 +48,10 @@ export async function getMyProfile(userId: string) {
   const profile = await getUserProfile(userId, userId);
   if (!profile) throw new AppError(404, "NOT_FOUND", "The user profile was not found.");
   return profile;
+}
+
+export async function markVerifiedAchievementSeen(userId: string) {
+  return persistVerifiedAchievementSeen(userId);
 }
 
 export async function getProfileByUsername(username: string, viewerId: string) {

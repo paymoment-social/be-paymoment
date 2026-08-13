@@ -16,6 +16,7 @@ import {
   listActiveInterests,
   listFollowRequests,
   listRelationships,
+  markVerifiedAchievementSeen,
   respondFollowRequest,
   setBlocked,
   setMuted,
@@ -54,6 +55,12 @@ usersRoutes.patch("/me", async (c) => {
   await enforceRateLimit(c, "user.profile.update", session.user.id, 20, 60 * 60);
   const input = await parseJson(c, updateProfileSchema);
   return success(c, { user: await updateMyProfile(session.user.id, input) });
+});
+
+usersRoutes.put("/me/verified-achievement-seen", async (c) => {
+  const session = await requireSession(c);
+  await enforceRateLimit(c, "user.verified-achievement.seen", session.user.id, 10, 60 * 60);
+  return success(c, await markVerifiedAchievementSeen(session.user.id));
 });
 
 usersRoutes.get("/me/follow-requests", async (c) => {

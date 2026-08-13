@@ -86,7 +86,7 @@ export async function getUserProfile(userId: string, viewerId: string): Promise<
     db.select({ slug: interests.slug, label: interests.label }).from(userInterests)
       .innerJoin(interests, eq(interests.id, userInterests.interestId)).where(eq(userInterests.userId, userId)).orderBy(interests.label),
     db.select({ balance: rewardLedger.balanceAfter }).from(rewardLedger).where(eq(rewardLedger.userId, userId)).orderBy(desc(rewardLedger.createdAt)).limit(1),
-    db.select({ grantedAt: userEntitlements.grantedAt }).from(userEntitlements).where(and(
+    db.select({ grantedAt: userEntitlements.grantedAt, metadata: userEntitlements.metadata }).from(userEntitlements).where(and(
       eq(userEntitlements.userId, userId), eq(userEntitlements.type, "verified"), isNull(userEntitlements.revokedAt),
     )).limit(1),
     viewerId === userId ? Promise.resolve([]) : db.select({ status: follows.status }).from(follows)
@@ -99,6 +99,9 @@ export async function getUserProfile(userId: string, viewerId: string): Promise<
 
   const balance = ledgerRows[0]?.balance ?? 0;
   const verifiedAt = entitlementRows[0]?.grantedAt ?? null;
+  const verifiedAchievementSeenAt = typeof entitlementRows[0]?.metadata?.verified_achievement_seen_at === "string"
+    ? entitlementRows[0].metadata.verified_achievement_seen_at
+    : null;
   let relationship: RelationshipState = "none";
   if (blockRows.length) relationship = "blocked";
   else if (muteRows.length) relationship = "muted";
@@ -133,12 +136,35 @@ export async function getUserProfile(userId: string, viewerId: string): Promise<
     entitlement: {
       verified: Boolean(verifiedAt),
       verified_at: verifiedAt?.toISOString() ?? null,
+      ...(isSelf ? { verified_achievement_seen_at: verifiedAchievementSeenAt } : {}),
       points_balance: balance,
       verified_threshold: VERIFIED_THRESHOLD,
     },
     relationship,
     is_self: isSelf,
   };
+}
+
+export async function persistVerifiedAchievementSeen(userId: string) {
+  const db = getDb();
+  const [entitlement] = await db.select({ metadata: userEntitlements.metadata }).from(userEntitlements).where(and(
+    eq(userEntitlements.userId, userId),
+    eq(userEntitlements.type, "verified"),
+    isNull(userEntitlements.revokedAt),
+  )).limit(1);
+  if (!entitlement) throw new AppError(409, "BUSINESS_RULE_ERROR", "Verified achievement is not available for this account.");
+  const existing = entitlement.metadata?.verified_achievement_seen_at;
+  if (typeof existing === "string") return { seen_at: existing };
+  const seenAt = new Date().toISOString();
+  await db.update(userEntitlements).set({
+    metadata: sql`${userEntitlements.metadata} || ${JSON.stringify({ verified_achievement_seen_at: seenAt })}::jsonb`,
+    updatedAt: new Date(),
+  }).where(and(
+    eq(userEntitlements.userId, userId),
+    eq(userEntitlements.type, "verified"),
+    isNull(userEntitlements.revokedAt),
+  ));
+  return { seen_at: seenAt };
 }
 
 async function resolveInterestIds(slugs: string[], tx: Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0]) {

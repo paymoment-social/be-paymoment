@@ -146,6 +146,47 @@ function notificationResult(result: { data: Array<Record<string, any>>; nextCurs
   };
 }
 
+function decorateConversation(conversation: Record<string, any>, userId: string) {
+  const participant = conversation.participant && typeof conversation.participant === "object" ? conversation.participant as Record<string, any> : null;
+  const lastMessage = conversation.last_message && typeof conversation.last_message === "object" ? conversation.last_message as Record<string, any> : null;
+  const lastMessageBody = typeof lastMessage?.body === "string" ? lastMessage.body.trim().slice(0, 240) : "";
+  return {
+    id: conversation.id,
+    type: conversation.type,
+    title: conversation.title,
+    participant: participant ? {
+      id: participant.id,
+      display_name: participant.display_name,
+      username: participant.username,
+      avatar_url: proxyMediaUrl(participant.avatar_url),
+      verified: Boolean(participant.verified || participant.entitlement?.verified),
+    } : null,
+    last_message: lastMessage ? {
+      body: lastMessageBody,
+      created_at: lastMessage.created_at,
+      is_from_me: lastMessage.sender_id === userId,
+    } : null,
+    unread: Boolean(conversation.unread),
+    updated_at: conversation.lastMessageAt?.toISOString?.() ?? conversation.lastMessageAt ?? conversation.updatedAt?.toISOString?.() ?? conversation.updatedAt,
+    href: `${config().frontendUrl.replace(/\/$/, "")}/messages?conversation=${encodeURIComponent(String(conversation.id))}`,
+  };
+}
+
+function conversationResult(conversations: Array<Record<string, any>>, userId: string) {
+  const cards = conversations.map((conversation) => decorateConversation(conversation, userId));
+  const summary = cards.length
+    ? cards.map((conversation) => {
+      const name = conversation.participant?.display_name || conversation.title || "PayMoment conversation";
+      const preview = conversation.last_message?.body || "No messages yet.";
+      return `- ${name}: ${preview}${conversation.unread ? " (unread)" : ""}`;
+    }).join("\n")
+    : "No PayMoment conversations yet.";
+  return {
+    content: [{ type: "text" as const, text: `PayMoment conversations\n\n${summary}` }],
+    structuredContent: { type: "paymoment.conversations", brand: brand(), conversations: cards },
+  };
+}
+
 function profileText(profile: Record<string, any>) {
   const handle = profile.username ? `@${profile.username}` : "@paymoment.user";
   return [
@@ -202,8 +243,8 @@ async function createMomentWithTrace(userId: string, body: string, mediaAssetIds
 }
 
 function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymoment.write"]) {
-  const server = new McpServer({ name: "paymoment", version: "1.2.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
-  const socialResourceUri = "ui://paymoment/social-v5.html";
+  const server = new McpServer({ name: "paymoment", version: "1.3.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
+  const socialResourceUri = "ui://paymoment/social-v6.html";
   const mediaOrigin = new URL(config().mcpIssuerUrl).origin;
   registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8"), _meta: { ui: { csp: { resourceDomains: [mediaOrigin] } } } }] }));
   if (scopes.includes("paymoment.read")) {
@@ -215,7 +256,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
     registerAppTool(server, "paymoment_list_notifications", { title: "View PayMoment notifications", description: "Read the authenticated user's activity notifications as compact PayMoment cards with actor, activity, time, unread state, and destination links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { filter: z.enum(["all", "unread", "likes", "replies", "mentions", "follows", "rewards", "reposts"]).default("all"), limit: z.number().int().min(1).max(50).default(30), cursor: z.string().max(2048).optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ filter, limit, cursor }) => { const result = await listNotifications(userId, filter, limit, cursor); await auditMcpAction(userId, "mcp.notifications.list", "notification", undefined, { filter, limit }); return notificationResult(result as { data: Array<Record<string, any>>; nextCursor: string | null; hasMore: boolean }, filter); });
     registerAppTool(server, "paymoment_get_analytics", { title: "View PayMoment analytics", description: "Read account or post engagement metrics available to the authenticated account.", inputSchema: { post_id: z.uuid().optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ post_id }) => { const data = post_id ? await getMoment(userId, post_id) : await getLatestFeed(userId, 20); await auditMcpAction(userId, "mcp.analytics.read", post_id ? "post" : "user", post_id, { scope: post_id ? "post" : "account" }); return actionResult(post_id ? "Post analytics" : "Account analytics", post_id ? { post_id, counts: (data as any).counts, published_at: (data as any).published_at } : { recent_posts: (data as any).data?.map((post: any) => ({ id: post.id, counts: post.counts })) ?? [], pagination: data }); });
     registerAppTool(server, "paymoment_list_rewards", { title: "View Box reward history", description: "Read the authenticated user's Box reward ledger.", inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const ledger = await listRewardLedger(userId); await auditMcpAction(userId, "mcp.rewards.list", "reward_ledger", userId); return actionResult("Box reward history", ledger); });
-    registerAppTool(server, "paymoment_list_conversations", { title: "Read PayMoment conversations", description: "List direct message conversations and unread state.", inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const conversations = await listConversations(userId); await auditMcpAction(userId, "mcp.messages.conversations", "conversation", userId); return actionResult("PayMoment conversations", conversations); });
+    registerAppTool(server, "paymoment_list_conversations", { title: "List PayMoment conversations", description: "List direct-message conversations as compact PayMoment cards with participant, latest-message preview, time, unread state, and a link to Messages.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const conversations = await listConversations(userId); await auditMcpAction(userId, "mcp.messages.conversations", "conversation", userId); return conversationResult(conversations as Array<Record<string, any>>, userId); });
     registerAppTool(server, "paymoment_read_messages", { title: "Read PayMoment DM", description: "Read messages from a conversation with cursor pagination.", inputSchema: { conversation_id: z.uuid(), limit: z.number().int().min(1).max(50).default(30), cursor: z.string().max(2048).optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ conversation_id, limit, cursor }) => { const messages = await listMessages(userId, conversation_id, limit, cursor); await auditMcpAction(userId, "mcp.messages.read", "conversation", conversation_id, { limit }); return actionResult("Direct messages", messages); });
     registerAppTool(server, "paymoment_get_media", { title: "View uploaded media", description: "Read metadata for one media asset owned by the authenticated account.", inputSchema: { media_id: z.uuid() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ media_id }) => { const media = await getMedia(userId, media_id); await auditMcpAction(userId, "mcp.media.read", "media_asset", media_id); return actionResult("Uploaded media", media); });
     registerAppTool(server, "paymoment_list_article_drafts", { title: "List PayMoment article drafts", description: "Read the authenticated user's article drafts so they can be edited or published.", inputSchema: { limit: z.number().int().min(1).max(50).default(20) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ limit }) => { const drafts = await getArticleDrafts(userId, limit); await auditMcpAction(userId, "mcp.article.drafts.list", "user", userId, { limit }); return { content: [{ type: "text" as const, text: drafts.map((post) => momentCard(post as Record<string, any>)).join("\n\n---\n\n") || "No article drafts found." }], structuredContent: { type: "paymoment.social_feed", brand: brand(), cards: drafts.filter(Boolean).map((post) => decoratePost(post as Record<string, any>)) } }; });
