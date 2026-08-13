@@ -1,6 +1,6 @@
 import { and, count, desc, eq, isNull, lt, or } from "drizzle-orm";
 import { getDb } from "../../db/client";
-import { notificationPreferences, notifications, outboxEvents } from "../../db/schema";
+import { follows, notificationPreferences, notifications, outboxEvents } from "../../db/schema";
 import { decodeCursor, encodeCursor } from "../../lib/pagination";
 import { getUserProfile } from "../users/users.repository";
 
@@ -20,7 +20,19 @@ export async function createNotification(input: { userId: string; actorId?: stri
   return data;
 }
 
+async function ensureFollowRequestNotifications(userId: string) {
+  const pending = await getDb().select({ followerId: follows.followerId }).from(follows).where(and(eq(follows.followingId, userId), eq(follows.status, "pending")));
+  await Promise.all(pending.map((row) => createNotification({
+    userId,
+    actorId: row.followerId,
+    type: "follow",
+    dedupeKey: `follow-request:${row.followerId}:${userId}`,
+    payload: { action: "requested" },
+  })));
+}
+
 export async function listNotifications(userId: string, filter: string, limit: number, cursorValue?: string) {
+  await ensureFollowRequestNotifications(userId);
   const cursor = decodeCursor(cursorValue);
   const type = filter === "likes" ? "like" : filter === "replies" ? "reply" : filter === "mentions" ? "mention" : filter === "follows" ? "follow" : filter === "rewards" ? "reward" : filter === "reposts" ? "repost" : undefined;
   const rows = await getDb().select().from(notifications).where(and(eq(notifications.userId, userId), filter === "unread" ? isNull(notifications.readAt) : undefined, type ? eq(notifications.type, type) : undefined, cursor ? or(lt(notifications.createdAt, new Date(cursor.created_at)), and(eq(notifications.createdAt, new Date(cursor.created_at)), lt(notifications.id, cursor.id))) : undefined)).orderBy(desc(notifications.createdAt), desc(notifications.id)).limit(limit + 1);
