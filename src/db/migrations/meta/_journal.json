@@ -78,6 +78,13 @@
       "when": 1786334400000,
       "tag": "0010_pin_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786338000000,
+      "tag": "0011_single_profile_pin",
+      "breakpoints": true
     }
   ]
 }

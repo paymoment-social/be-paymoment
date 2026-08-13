@@ -107,6 +107,7 @@ export async function getUserPosts(viewerId: string, username: string, limit: nu
   if (!targetId) throw new AppError(404, "NOT_FOUND", "The user profile was not found.");
   const profile = await getUserProfile(targetId, viewerId);
   if (!profile) throw new AppError(404, "NOT_FOUND", "The user profile was not found.");
+  if (targetId !== viewerId && profile.privacy.private_profile && profile.relationship !== "following") return { data: [], hasMore: false, nextCursor: null };
   return listUserPosts(targetId, viewerId, limit, cursor);
 }
 
@@ -176,6 +177,7 @@ export async function createPostReply(userId: string, postValue: string, input: 
   const reply = await createReply(userId, id, input, actorType);
   const authorId = (post as { author?: { id?: string } }).author?.id;
   if (authorId) await createNotification({ userId: authorId, actorId: userId, type: "reply", postId: id, replyId: reply.id, dedupeKey: `reply:${reply.id}` });
+  await recordTrendingHashtags(extractTokens(input.body).hashtags);
   await notifyMentions(userId, input.body, { postId: id, replyId: reply.id });
   const hydrated = await hydrateReply(reply.id, userId);
   if (!hydrated) throw new Error("Unable to hydrate the created reply.");
@@ -192,6 +194,8 @@ export async function editPostReply(userId: string, replyValue: string, body: st
   const id = validId(replyValue, "reply");
   const reply = await updateReply(userId, id, body);
   if (!reply) throw new AppError(404, "NOT_FOUND", "The reply was not found or cannot be edited.");
+  await recordTrendingHashtags(extractTokens(body).hashtags);
+  await notifyMentions(userId, body, { postId: reply.postId, replyId: reply.id });
   const hydrated = await hydrateReply(reply.id, userId);
   if (!hydrated) throw new Error("Unable to hydrate the updated reply.");
   return hydrated;

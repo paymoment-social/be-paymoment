@@ -127,7 +127,7 @@ function assertDifferentUsers(actorId: string, targetValue: string) {
 export async function follow(actorId: string, targetValue: string) {
   const targetId = assertDifferentUsers(actorId, targetValue);
   const status = await setFollowRelationship(actorId, targetId);
-  if (status === "active") await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: `follow:${actorId}:${targetId}` });
+  await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: `follow:${actorId}:${targetId}`, payload: { action: status === "pending" ? "requested" : "following" } });
   return { user_id: targetId, following: status === "active", requested: status === "pending", status };
 }
 
@@ -156,6 +156,7 @@ export async function setMuted(actorId: string, targetValue: string, muted: bool
 export async function respondFollowRequest(ownerId: string, followerValue: string, accepted: boolean) {
   const followerId = assertDifferentUsers(ownerId, followerValue);
   if (!await respondToFollowRequest(ownerId, followerId, accepted)) throw new AppError(404, "NOT_FOUND", "The follow request was not found.");
+  await createNotification({ userId: followerId, actorId: ownerId, type: "follow", dedupeKey: `follow-response:${ownerId}:${followerId}:${accepted ? "accepted" : "declined"}`, payload: { action: accepted ? "accepted" : "declined" } });
   return { user_id: followerId, status: accepted ? "active" as const : "removed" as const };
 }
 

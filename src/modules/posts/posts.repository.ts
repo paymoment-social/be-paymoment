@@ -103,6 +103,8 @@ async function canView(post: typeof posts.$inferSelect, viewerId: string) {
     and(eq(userBlocks.blockerId, post.authorId), eq(userBlocks.blockedId, viewerId)),
   ));
   if ((blocked?.value ?? 0) > 0) return false;
+  const authorProfile = await getUserProfile(post.authorId, viewerId);
+  if (authorProfile?.privacy.private_profile && authorProfile.relationship !== "following") return false;
   if (post.visibility === "public") return true;
   const [follow] = await getDb().select({ value: count() }).from(follows).where(and(eq(follows.followerId, viewerId), eq(follows.followingId, post.authorId), eq(follows.status, "active")));
   return (follow?.value ?? 0) > 0;
@@ -216,7 +218,17 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
     inNetwork,
   }).from(posts).where(and(
     eq(posts.status, "published"), isNull(posts.deletedAt),
-    or(eq(posts.authorId, viewerId), eq(posts.visibility, "public"), and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`)),
+    or(
+      eq(posts.authorId, viewerId),
+      and(
+        eq(posts.visibility, "public"),
+        or(
+          sql`not exists (select 1 from user_profiles private_profile where private_profile.user_id = ${posts.authorId} and private_profile.private_profile = true)`,
+          sql`exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`,
+        ),
+      ),
+      and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} f where f.follower_id = ${viewerId} and f.following_id = ${posts.authorId} and f.status = 'active')`),
+    ),
     sql`not exists (select 1 from ${userBlocks} b where (b.blocker_id = ${viewerId} and b.blocked_id = ${posts.authorId}) or (b.blocker_id = ${posts.authorId} and b.blocked_id = ${viewerId}))`,
     sql`not exists (select 1 from ${userMutes} m where m.muter_id = ${viewerId} and m.muted_id = ${posts.authorId} and (m.expires_at is null or m.expires_at > now()))`,
     mode === "latest" && cursor ? or(lt(posts.publishedAt, new Date(cursor.created_at)), and(eq(posts.publishedAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
