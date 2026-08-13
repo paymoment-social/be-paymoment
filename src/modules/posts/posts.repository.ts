@@ -247,7 +247,13 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
 export async function listUserPosts(authorId: string, viewerId: string, limit: number, cursorValue?: string) {
   const cursor = decodeCursor(cursorValue);
   const activityAt = sql<Date>`coalesce(${reposts.createdAt}, ${posts.publishedAt}, ${posts.createdAt})`;
-  const rows = await getDb().select({ id: posts.id, publishedAt: posts.publishedAt, activityAt, reposted: sql<boolean>`${reposts.userId} is not null` }).from(posts).leftJoin(reposts, and(eq(reposts.postId, posts.id), eq(reposts.userId, authorId))).where(and(
+  const activityCursor = cursor ? or(lt(activityAt, new Date(cursor.created_at)), and(eq(activityAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined;
+  const profileCursor = cursor?.pinned === true && cursor.pinned_at
+    ? or(isNull(posts.pinnedAt), and(lt(posts.pinnedAt, new Date(cursor.pinned_at))), and(eq(posts.pinnedAt, new Date(cursor.pinned_at)), activityCursor))
+    : cursor?.pinned === false
+      ? and(isNull(posts.pinnedAt), activityCursor)
+      : activityCursor;
+  const rows = await getDb().select({ id: posts.id, publishedAt: posts.publishedAt, pinnedAt: posts.pinnedAt, activityAt, reposted: sql<boolean>`${reposts.userId} is not null` }).from(posts).leftJoin(reposts, and(eq(reposts.postId, posts.id), eq(reposts.userId, authorId))).where(and(
     or(eq(posts.authorId, authorId), eq(reposts.userId, authorId)),
     eq(posts.status, "published"),
     isNull(posts.deletedAt),
@@ -256,7 +262,7 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
       and(eq(posts.visibility, "followers"), sql`exists (select 1 from ${follows} profile_follow where profile_follow.follower_id = ${viewerId} and profile_follow.following_id = ${authorId} and profile_follow.status = 'active')`),
     ),
     sql`not exists (select 1 from ${userBlocks} profile_block where (profile_block.blocker_id = ${viewerId} and profile_block.blocked_id = ${authorId}) or (profile_block.blocker_id = ${authorId} and profile_block.blocked_id = ${viewerId}))`,
-    cursor ? or(lt(activityAt, new Date(cursor.created_at)), and(eq(activityAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined,
+    profileCursor,
   )).orderBy(sql`(${posts.pinnedAt} is not null) desc`, desc(posts.pinnedAt), desc(activityAt), desc(posts.id)).limit(limit + 1);
   const page = rows.slice(0, limit);
   const repostAuthor = page.some((row) => row.reposted) ? await getUserProfile(authorId, viewerId) : null;
@@ -270,7 +276,7 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
   return {
     data: hydrated.filter((post): post is NonNullable<typeof post> => Boolean(post)),
     hasMore: rows.length > limit,
-    nextCursor: rows.length > limit && last ? encodeCursor({ created_at: new Date(last.activityAt).toISOString(), id: last.id }) : null,
+    nextCursor: rows.length > limit && last ? encodeCursor({ created_at: new Date(last.activityAt).toISOString(), id: last.id, pinned: Boolean(last.pinnedAt), pinned_at: last.pinnedAt?.toISOString() ?? null }) : null,
   };
 }
 
