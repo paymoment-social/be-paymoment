@@ -51,6 +51,18 @@ export async function markAllNotificationsRead(userId: string) {
   const rows = await getDb().update(notifications).set({ readAt: new Date() }).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))).returning({ id: notifications.id });
   return rows.length;
 }
+export async function resolveFollowRequestNotification(ownerId: string, followerId: string, accepted: boolean) {
+  await getDb().update(notifications).set({
+    payload: { action: accepted ? "accepted" : "declined" },
+    readAt: new Date(),
+  }).where(and(
+    eq(notifications.userId, ownerId),
+    or(
+      eq(notifications.dedupeKey, `follow-request:${followerId}:${ownerId}`),
+      eq(notifications.dedupeKey, `follow:${followerId}:${ownerId}`),
+    ),
+  ));
+}
 export async function getUnreadNotificationCount(userId: string) { const [row] = await getDb().select({ count: count() }).from(notifications).where(and(eq(notifications.userId, userId), isNull(notifications.readAt))); return row?.count ?? 0; }
 export async function getNotificationPreferences(userId: string) { const [row] = await getDb().select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1); return row ?? { userId, likes: true, replies: true, mentions: true, follows: true, rewards: true, reposts: true, messages: true, emailDigest: false }; }
 export async function updateNotificationPreferences(userId: string, input: { likes?: boolean; replies?: boolean; mentions?: boolean; follows?: boolean; rewards?: boolean; reposts?: boolean; messages?: boolean; email_digest?: boolean }) { const [row] = await getDb().insert(notificationPreferences).values({ userId, likes: input.likes ?? true, replies: input.replies ?? true, mentions: input.mentions ?? true, follows: input.follows ?? true, rewards: input.rewards ?? true, reposts: input.reposts ?? true, messages: input.messages ?? true, emailDigest: input.email_digest ?? false }).onConflictDoUpdate({ target: notificationPreferences.userId, set: { ...(input.likes !== undefined ? { likes: input.likes } : {}), ...(input.replies !== undefined ? { replies: input.replies } : {}), ...(input.mentions !== undefined ? { mentions: input.mentions } : {}), ...(input.follows !== undefined ? { follows: input.follows } : {}), ...(input.rewards !== undefined ? { rewards: input.rewards } : {}), ...(input.reposts !== undefined ? { reposts: input.reposts } : {}), ...(input.messages !== undefined ? { messages: input.messages } : {}), ...(input.email_digest !== undefined ? { emailDigest: input.email_digest } : {}), updatedAt: new Date() } }).returning(); return row!; }
