@@ -7,7 +7,8 @@ import { getUserProfile } from "../users/users.repository";
 export async function createNotification(input: { userId: string; actorId?: string; type: "like" | "reply" | "mention" | "follow" | "reward" | "repost" | "message" | "system"; postId?: string; replyId?: string; conversationId?: string; messageId?: string; dedupeKey?: string; payload?: Record<string, unknown> }) {
   if (input.userId === input.actorId) return null;
   const preferenceColumn = input.type === "like" ? "likes" : input.type === "reply" ? "replies" : input.type === "mention" ? "mentions" : input.type === "follow" ? "follows" : input.type === "reward" ? "rewards" : input.type === "repost" ? "reposts" : input.type === "message" ? "messages" : null;
-  if (preferenceColumn) { const [preferences] = await getDb().select().from(notificationPreferences).where(eq(notificationPreferences.userId, input.userId)).limit(1); if (preferences && !preferences[preferenceColumn]) return null; }
+  const isFollowRequest = input.type === "follow" && input.payload?.action === "requested";
+  if (preferenceColumn && !isFollowRequest) { const [preferences] = await getDb().select().from(notificationPreferences).where(eq(notificationPreferences.userId, input.userId)).limit(1); if (preferences && !preferences[preferenceColumn]) return null; }
   const created = await getDb().transaction(async (tx) => {
     const [notification] = await tx.insert(notifications).values({ userId: input.userId, actorId: input.actorId, type: input.type, postId: input.postId, replyId: input.replyId, conversationId: input.conversationId, messageId: input.messageId, dedupeKey: input.dedupeKey, payload: input.payload ?? {} }).onConflictDoNothing().returning();
     if (!notification) return null;
