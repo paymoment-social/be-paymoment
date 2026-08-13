@@ -74,6 +74,78 @@ function actionResult(title: string, data: unknown, cards: Array<Record<string, 
   return { content: [{ type: "text" as const, text: `${title}\n\n${JSON.stringify(data)}` }], structuredContent: { type: "paymoment.action", brand: brand(), action: { title, data }, cards: cards.map(decoratePost) } };
 }
 
+function notificationText(type: string, payload: Record<string, unknown>) {
+  if (typeof payload.text === "string") return payload.text;
+  if (type === "reward") {
+    const amount = typeof payload.amount === "number" ? Math.abs(payload.amount) : undefined;
+    const label = typeof payload.label === "string" ? payload.label : "your PayMoment activity";
+    if (payload.action === "earned" && amount) return `You earned +${amount.toLocaleString()} BOX from ${label}.`;
+    if (payload.action === "redeemed" && amount) return `You redeemed ${label} for ${amount.toLocaleString()} BOX.`;
+    return "Your BOX reward balance was updated.";
+  }
+  if (type === "follow") {
+    if (payload.action === "requested") return "requested to follow you.";
+    if (payload.action === "accepted") return "accepted your follow request.";
+    if (payload.action === "declined") return "declined your follow request.";
+    return "started following you.";
+  }
+  if (type === "like") return "liked your Moment.";
+  if (type === "reply") return "replied to your Moment.";
+  if (type === "mention") return "mentioned you in a Moment.";
+  if (type === "repost") return "reposted your Moment.";
+  if (type === "message") return "sent you a message.";
+  return "sent you a PayMoment update.";
+}
+
+function notificationHref(notification: Record<string, any>) {
+  const website = config().frontendUrl.replace(/\/$/, "");
+  if (notification.conversation_id) return `${website}/messages?conversation=${encodeURIComponent(notification.conversation_id)}`;
+  if (notification.post_id) return `${website}/post/${encodeURIComponent(notification.post_id)}${notification.reply_id ? `?reply=${encodeURIComponent(notification.reply_id)}` : ""}`;
+  if (notification.type === "reward") return `${website}/rewards`;
+  if (notification.actor?.username) return `${website}/u/${encodeURIComponent(notification.actor.username)}`;
+  return `${website}/notifications`;
+}
+
+function decorateNotification(notification: Record<string, any>) {
+  const payload = notification.payload && typeof notification.payload === "object" ? notification.payload as Record<string, unknown> : {};
+  const actor = notification.actor && typeof notification.actor === "object" ? notification.actor as Record<string, any> : null;
+  return {
+    id: notification.id,
+    type: notification.type,
+    actor: actor ? {
+      id: actor.id,
+      display_name: actor.display_name,
+      username: actor.username,
+      avatar_url: proxyMediaUrl(actor.avatar_url),
+      verified: Boolean(actor.verified || actor.entitlement?.verified),
+    } : null,
+    text: notificationText(notification.type, payload),
+    href: notificationHref(notification),
+    read: Boolean(notification.read_at),
+    created_at: notification.created_at,
+    reward_amount: notification.type === "reward" && typeof payload.amount === "number" ? Math.abs(payload.amount) : undefined,
+    reward_action: notification.type === "reward" && (payload.action === "earned" || payload.action === "redeemed") ? payload.action : undefined,
+    follow_action: notification.type === "follow" && typeof payload.action === "string" ? payload.action : undefined,
+  };
+}
+
+function notificationResult(result: { data: Array<Record<string, any>>; nextCursor: string | null; hasMore: boolean }, filter: string) {
+  const notifications = result.data.map(decorateNotification);
+  const summary = notifications.length
+    ? notifications.map((item) => `- ${item.actor?.display_name ? `${item.actor.display_name} ` : ""}${item.text}${item.read ? "" : " (unread)"}`).join("\n")
+    : "You are all caught up. There are no notifications in this view.";
+  return {
+    content: [{ type: "text" as const, text: `PayMoment notifications\n\n${summary}` }],
+    structuredContent: {
+      type: "paymoment.notifications",
+      brand: brand(),
+      filter,
+      notifications,
+      pagination: { next_cursor: result.nextCursor, has_more: result.hasMore },
+    },
+  };
+}
+
 function profileText(profile: Record<string, any>) {
   const handle = profile.username ? `@${profile.username}` : "@paymoment.user";
   return [
@@ -130,8 +202,8 @@ async function createMomentWithTrace(userId: string, body: string, mediaAssetIds
 }
 
 function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymoment.write"]) {
-  const server = new McpServer({ name: "paymoment", version: "1.1.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
-  const socialResourceUri = "ui://paymoment/social-v4.html";
+  const server = new McpServer({ name: "paymoment", version: "1.2.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
+  const socialResourceUri = "ui://paymoment/social-v5.html";
   const mediaOrigin = new URL(config().mcpIssuerUrl).origin;
   registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8"), _meta: { ui: { csp: { resourceDomains: [mediaOrigin] } } } }] }));
   if (scopes.includes("paymoment.read")) {
@@ -140,7 +212,7 @@ function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymom
     registerAppTool(server, "paymoment_list_moments", { title: "List PayMoment Moments", description: "Read the authenticated user's visible latest Moments as interactive PayMoment social cards with author, media, engagement, and links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { limit: z.number().int().min(1).max(20).default(10) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ limit }) => { const feed = await getLatestFeed(userId, limit); await auditMcpAction(userId, "mcp.moments.list", "feed", undefined, { limit }); return socialFeedResult(feed); });
     registerAppTool(server, "paymoment_get_post", { title: "Open a PayMoment post", description: "Read one Moment or article by ID as a branded card.", inputSchema: { post_id: z.uuid() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ post_id }) => { const post = await getMoment(userId, post_id); await auditMcpAction(userId, "mcp.post.read", "post", post_id); return socialPostResult(post as Record<string, any>); });
     registerAppTool(server, "paymoment_search", { title: "Search PayMoment", description: "Search users, Moments, articles, or hashtags.", inputSchema: { query: z.string().trim().min(1).max(120), type: z.enum(["all", "people", "moments", "articles", "topics"]).default("all"), limit: z.number().int().min(1).max(20).default(10) }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ query, type, limit }) => { const result = await searchDiscover(userId, query, type, limit); await auditMcpAction(userId, "mcp.search", "search", undefined, { query, type, limit }); return { content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: { type: "paymoment.search", brand: brand(), results: { ...result, moments: result.moments.filter(Boolean).map((post) => decoratePost(post as Record<string, any>)), articles: result.articles.filter(Boolean).map((post) => decoratePost(post as Record<string, any>)) } } }; });
-    registerAppTool(server, "paymoment_list_notifications", { title: "View PayMoment notifications", description: "Read the authenticated user's activity notifications with cursor pagination.", inputSchema: { filter: z.enum(["all", "unread", "likes", "replies", "mentions", "follows", "rewards", "reposts"]).default("all"), limit: z.number().int().min(1).max(50).default(30), cursor: z.string().max(2048).optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ filter, limit, cursor }) => { const result = await listNotifications(userId, filter, limit, cursor); await auditMcpAction(userId, "mcp.notifications.list", "notification", undefined, { filter, limit }); return actionResult("PayMoment notifications", result); });
+    registerAppTool(server, "paymoment_list_notifications", { title: "View PayMoment notifications", description: "Read the authenticated user's activity notifications as compact PayMoment cards with actor, activity, time, unread state, and destination links.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: { filter: z.enum(["all", "unread", "likes", "replies", "mentions", "follows", "rewards", "reposts"]).default("all"), limit: z.number().int().min(1).max(50).default(30), cursor: z.string().max(2048).optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ filter, limit, cursor }) => { const result = await listNotifications(userId, filter, limit, cursor); await auditMcpAction(userId, "mcp.notifications.list", "notification", undefined, { filter, limit }); return notificationResult(result as { data: Array<Record<string, any>>; nextCursor: string | null; hasMore: boolean }, filter); });
     registerAppTool(server, "paymoment_get_analytics", { title: "View PayMoment analytics", description: "Read account or post engagement metrics available to the authenticated account.", inputSchema: { post_id: z.uuid().optional() }, _meta: { ui: { resourceUri: socialResourceUri } } }, async ({ post_id }) => { const data = post_id ? await getMoment(userId, post_id) : await getLatestFeed(userId, 20); await auditMcpAction(userId, "mcp.analytics.read", post_id ? "post" : "user", post_id, { scope: post_id ? "post" : "account" }); return actionResult(post_id ? "Post analytics" : "Account analytics", post_id ? { post_id, counts: (data as any).counts, published_at: (data as any).published_at } : { recent_posts: (data as any).data?.map((post: any) => ({ id: post.id, counts: post.counts })) ?? [], pagination: data }); });
     registerAppTool(server, "paymoment_list_rewards", { title: "View Box reward history", description: "Read the authenticated user's Box reward ledger.", inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const ledger = await listRewardLedger(userId); await auditMcpAction(userId, "mcp.rewards.list", "reward_ledger", userId); return actionResult("Box reward history", ledger); });
     registerAppTool(server, "paymoment_list_conversations", { title: "Read PayMoment conversations", description: "List direct message conversations and unread state.", inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const conversations = await listConversations(userId); await auditMcpAction(userId, "mcp.messages.conversations", "conversation", userId); return actionResult("PayMoment conversations", conversations); });
