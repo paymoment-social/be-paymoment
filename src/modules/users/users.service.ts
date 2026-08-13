@@ -126,8 +126,9 @@ function assertDifferentUsers(actorId: string, targetValue: string) {
 
 export async function follow(actorId: string, targetValue: string) {
   const targetId = assertDifferentUsers(actorId, targetValue);
-  const status = await setFollowRelationship(actorId, targetId);
-  await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: `follow:${actorId}:${targetId}`, payload: { action: "following" } });
+  const relationship = await setFollowRelationship(actorId, targetId);
+  await createNotification({ userId: targetId, actorId, type: "follow", dedupeKey: `follow:${actorId}:${targetId}:${relationship.updatedAt.toISOString()}`, payload: { action: "following" } });
+  const { status } = relationship;
   return { user_id: targetId, following: true, requested: false, status };
 }
 

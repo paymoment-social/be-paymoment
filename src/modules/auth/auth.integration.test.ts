@@ -103,7 +103,7 @@ describe("database-backed identity integration", () => {
     expect(await usernameIsAvailable("phase.two.a", second.id)).toBeFalse();
 
     await persistProfileUpdate(second.id, { privateProfile: true });
-    expect(await setFollowRelationship(first.id, second.id)).toBe("active");
+    expect((await setFollowRelationship(first.id, second.id)).status).toBe("active");
     expect((await listPendingFollowerIds(second.id)).map((row) => row.id)).toContain(first.id);
     expect(await respondToFollowRequest(second.id, first.id, true)).toBeTrue();
     expect((await getUserProfile(second.id, first.id))?.relationship).toBe("following");

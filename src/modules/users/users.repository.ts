@@ -246,10 +246,11 @@ export async function setFollowRelationship(followerId: string, followingId: str
     )).limit(1);
     if (blocked) throw new AppError(403, "FORBIDDEN", "A follow relationship cannot be created between blocked users.");
     const status = "active" as const;
-    await tx.insert(follows).values({ followerId, followingId, status }).onConflictDoUpdate({
-      target: [follows.followerId, follows.followingId], set: { status, updatedAt: new Date() },
+    const updatedAt = new Date();
+    await tx.insert(follows).values({ followerId, followingId, status, updatedAt }).onConflictDoUpdate({
+      target: [follows.followerId, follows.followingId], set: { status, updatedAt },
     });
-    return status;
+    return { status, updatedAt };
   });
 }
 
