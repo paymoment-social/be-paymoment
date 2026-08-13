@@ -243,10 +243,13 @@ async function createMomentWithTrace(userId: string, body: string, mediaAssetIds
 }
 
 function getServer(userId: string, scopes: string[] = ["paymoment.read", "paymoment.write"]) {
-  const server = new McpServer({ name: "paymoment", version: "1.3.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
+  const server = new McpServer({ name: "paymoment", version: "1.4.0" }, { capabilities: { logging: {}, tools: { listChanged: true } } });
   const socialResourceUri = "ui://paymoment/social-v7.html";
+  const legacySocialResourceUris = ["ui://paymoment/social-v1.html", "ui://paymoment/social-v2.html", "ui://paymoment/social-v3.html", "ui://paymoment/social-v4.html", "ui://paymoment/social-v5.html", "ui://paymoment/social-v6.html"];
   const mediaOrigin = new URL(config().mcpIssuerUrl).origin;
-  registerAppResource(server, "PayMoment Social UI", socialResourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: socialResourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8"), _meta: { ui: { csp: { resourceDomains: [mediaOrigin] } } } }] }));
+  for (const resourceUri of [...legacySocialResourceUris, socialResourceUri]) {
+    registerAppResource(server, `PayMoment Social UI ${resourceUri.slice(-7, -5)}`, resourceUri, { mimeType: RESOURCE_MIME_TYPE }, async () => ({ contents: [{ uri: resourceUri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(new URL("../../../dist/mcp-app.html", import.meta.url), "utf8"), _meta: { ui: { csp: { resourceDomains: [mediaOrigin] } } } }] }));
+  }
   if (scopes.includes("paymoment.read")) {
     registerAppTool(server, "paymoment_get_profile", { title: "Get PayMoment profile", description: "Read the authenticated PayMoment profile and entitlement as a branded interactive card. Include the profile card in the response.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const profile = await getMyProfile(userId); const cardProfile = decorateProfile(profile as Record<string, any>); await auditMcpAction(userId, "mcp.profile.read", "user", userId); return { content: [{ type: "text", text: profileText(profile as Record<string, any>) }], structuredContent: { type: "paymoment.profile", brand: brand(), profile: cardProfile, card: cardProfile } }; });
     registerAppTool(server, "paymoment_get_box_balance", { title: "Check PayMoment Box balance", description: "Read the authenticated user's current Box balance as a PayMoment card.", annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, inputSchema: {}, _meta: { ui: { resourceUri: socialResourceUri } } }, async () => { const balance = await getRewardBalance(userId); await auditMcpAction(userId, "mcp.box.balance.read", "reward_balance", userId, { balance }); return rewardResult({ balance, unit: "Box" }, "Your PayMoment Box balance"); });
