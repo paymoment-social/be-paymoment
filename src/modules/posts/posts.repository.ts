@@ -247,9 +247,10 @@ export async function listLatestPosts(viewerId: string, limit: number, cursorVal
 export async function listUserPosts(authorId: string, viewerId: string, limit: number, cursorValue?: string) {
   const cursor = decodeCursor(cursorValue);
   const activityAt = sql<Date>`coalesce(${reposts.createdAt}, ${posts.publishedAt}, ${posts.createdAt})`;
-  const activityCursor = cursor ? or(lt(activityAt, new Date(cursor.created_at)), and(eq(activityAt, new Date(cursor.created_at)), lt(posts.id, cursor.id))) : undefined;
+  const activityCursor = cursor ? or(lt(activityAt, cursor.created_at), and(eq(activityAt, cursor.created_at), lt(posts.id, cursor.id))) : undefined;
+  const pinnedAtCursor = cursor?.pinned_at ? sql<Date>`${cursor.pinned_at}::timestamptz` : undefined;
   const profileCursor = cursor?.pinned === true && cursor.pinned_at
-    ? or(isNull(posts.pinnedAt), and(lt(posts.pinnedAt, new Date(cursor.pinned_at))), and(eq(posts.pinnedAt, new Date(cursor.pinned_at)), activityCursor))
+    ? or(isNull(posts.pinnedAt), and(lt(posts.pinnedAt, pinnedAtCursor!)), and(eq(posts.pinnedAt, pinnedAtCursor!), activityCursor))
     : cursor?.pinned === false
       ? and(isNull(posts.pinnedAt), activityCursor)
       : activityCursor;
