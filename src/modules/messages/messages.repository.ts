@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../db/client";
 import { conversationMembers, conversationRequests, conversations, mediaAssets, messageAttachments, messages } from "../../db/schema";
 import { AppError } from "../../lib/errors";
@@ -53,6 +53,15 @@ export async function listConversations(userId: string) {
     const latestBody = latestMessage ? await readProtectedBody(latestMessage) : null;
     return { ...row, participant: participant[0] ? await getUserProfile(participant[0].userId, userId) : null, unread: Boolean(latestMessage && latestMessage.senderId !== userId && (!row.lastReadAt || latestMessage.createdAt > row.lastReadAt)), last_message: latestMessage ? { id: latestMessage.id, sender_id: latestMessage.senderId, body: latestBody, created_at: latestMessage.createdAt.toISOString() } : null };
   }));
+}
+export async function getUnreadMessageCount(userId: string) {
+  const [row] = await getDb().select({ count: count(messages.id) }).from(conversationMembers).innerJoin(messages, and(
+    eq(messages.conversationId, conversationMembers.conversationId),
+    ne(messages.senderId, userId),
+    isNull(messages.deletedAt),
+    or(isNull(conversationMembers.lastReadAt), gt(messages.createdAt, conversationMembers.lastReadAt)),
+  )).where(and(eq(conversationMembers.userId, userId), eq(conversationMembers.status, "active")));
+  return row?.count ?? 0;
 }
 async function hydrateMessage(message: typeof messages.$inferSelect) {
   const attachments = await getDb().select({ id: mediaAssets.id, url: mediaAssets.gatewayUrl, mime_type: mediaAssets.mimeType, alt_text: mediaAssets.altText, position: messageAttachments.position }).from(messageAttachments).innerJoin(mediaAssets, eq(mediaAssets.id, messageAttachments.mediaAssetId)).where(eq(messageAttachments.messageId, message.id)).orderBy(messageAttachments.position);
