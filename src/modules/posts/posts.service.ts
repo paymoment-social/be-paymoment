@@ -21,9 +21,11 @@ import {
   listUserPosts,
   countNewFeedPosts,
   listBookmarkedPosts,
+  listArticleDrafts,
   listLikedPosts,
   listReplies,
   publishArticle,
+  publishScheduledArticles,
   recordShare,
   recordView,
   removePollVote,
@@ -123,6 +125,10 @@ export function getLikedPosts(userId: string, filter: "all" | "media" | "text", 
   return listLikedPosts(userId, filter, limit, cursor);
 }
 
+export function getArticleDrafts(userId: string, limit = 50) {
+  return listArticleDrafts(userId, limit);
+}
+
 export async function getArticlePost(userId: string, idValue: string) {
   const visible = await visiblePost(userId, idValue);
   if ((visible.post as { kind?: string }).kind !== "article") throw new AppError(404, "NOT_FOUND", "The article was not found.");
@@ -164,6 +170,16 @@ export async function publishArticlePost(userId: string, idValue: string) {
   await publishArticle(userId, current.id);
   return (await hydratePost(current.id, userId))!;
 }
+
+export async function scheduleArticlePost(userId: string, idValue: string, scheduledAt: string | null) {
+  const current = await ownedPost(userId, idValue, "article");
+  const currentPost = await getArticlePost(userId, current.id);
+  const article = await updateArticle(userId, current.id, { draft_version: (currentPost as any).article?.draft_version ?? 1, scheduled_at: scheduledAt });
+  if (article === "version_conflict" || !article) throw new AppError(409, "CONFLICT", "The article changed before it could be scheduled.");
+  return (await hydratePost(current.id, userId))!;
+}
+
+export { publishScheduledArticles };
 
 export async function deleteArticlePost(userId: string, idValue: string) {
   const current = await ownedPost(userId, idValue, "article");

@@ -30,7 +30,7 @@ export const updatePostSchema = z.object({
   visibility: visibilitySchema.optional(),
 }).refine((value) => Object.keys(value).length > 0, "Provide at least one field to update.");
 
-export const createArticleSchema = z.object({
+const articleFieldsSchema = z.object({
   title: z.string().trim().min(1).max(120),
   eyebrow: z.string().trim().max(80).optional(),
   description: z.string().trim().min(1).max(300),
@@ -39,10 +39,12 @@ export const createArticleSchema = z.object({
   banner_color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Use a six-digit hexadecimal color.").default("#17181B"),
   banner_position: z.enum(["left", "center", "right"]).default("center"),
   visibility: visibilitySchema.default("public"),
+  scheduled_at: z.iso.datetime().nullable().optional(),
   publish: z.boolean().default(false),
 });
+export const createArticleSchema = articleFieldsSchema.refine((value) => !value.publish || !value.scheduled_at, { path: ["scheduled_at"], message: "A published article cannot also be scheduled." });
 
-export const updateArticleSchema = createArticleSchema.omit({ publish: true }).partial().extend({ draft_version: z.number().int().positive() })
+export const updateArticleSchema = articleFieldsSchema.omit({ publish: true }).partial().extend({ draft_version: z.number().int().positive() })
   .refine((value) => Object.keys(value).some((key) => key !== "draft_version"), "Provide at least one field to update.");
 
 export const createReplySchema = z.object({

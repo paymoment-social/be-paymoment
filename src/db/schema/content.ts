@@ -105,9 +105,10 @@ export const articles = pgTable("articles", {
   bannerPosition: varchar("banner_position", { length: 16 }).default("center").notNull(),
   status: articleStatusEnum("status").default("draft").notNull(),
   draftVersion: integer("draft_version").default(1).notNull(),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   ...timestamps,
-});
+}, (table) => [index("articles_scheduled_at_idx").on(table.status, table.scheduledAt)]);
 
 export const polls = pgTable("polls", {
   postId: uuid("post_id").primaryKey().references(() => posts.id, { onDelete: "cascade" }),

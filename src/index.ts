@@ -6,6 +6,7 @@ import { hashToken, SESSION_COOKIE } from "./modules/auth/session";
 import { resolveSessionByTokenHash } from "./modules/auth/auth.repository";
 import { closeRealtimeSocket, handleRealtimeSocketMessage, openRealtimeSocket, startRealtimeSubscription } from "./lib/websocket";
 import { startOutboxWorker, stopOutboxWorker } from "./jobs/outbox";
+import { startScheduledArticleWorker, stopScheduledArticleWorker } from "./jobs/scheduled-articles";
 
 const app = createApp();
 function cookieValue(request: Request, name: string) { return request.headers.get("cookie")?.split(";").map((value) => value.trim()).find((value) => value.startsWith(`${name}=`))?.slice(name.length + 1); }
@@ -25,10 +26,12 @@ const server = Bun.serve<{ userId: string }>({
 });
 void startRealtimeSubscription().catch((error) => console.error(JSON.stringify({ level: "error", message: "Realtime Redis subscription failed.", error: error instanceof Error ? error.message : String(error) })));
 startOutboxWorker();
+startScheduledArticleWorker();
 
 async function shutdown(signal: string) {
   console.info(JSON.stringify({ level: "info", message: "Shutting down PayMoment API.", signal }));
   stopOutboxWorker();
+  stopScheduledArticleWorker();
   await Promise.allSettled([closeDatabase(), closeRedis()]);
   process.exit(0);
 }

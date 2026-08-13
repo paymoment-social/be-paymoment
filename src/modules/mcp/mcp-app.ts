@@ -12,7 +12,7 @@ type Card = {
 };
 
 type ToolResult = {
-  structuredContent?: { type?: string; card?: Card; cards?: Card[]; profile?: Profile; reward?: { title?: string; balance?: number; claimed?: boolean; redeemed?: boolean; unit?: string; granted_points?: number }; brand?: { name?: string; website?: string }; pagination?: { has_more?: boolean } };
+  structuredContent?: { type?: string; card?: Card; cards?: Card[]; profile?: Profile; reward?: { title?: string; balance?: number; claimed?: boolean; redeemed?: boolean; unit?: string; granted_points?: number }; action?: { title?: string; data?: unknown }; results?: { people?: unknown[]; moments?: Card[]; articles?: Card[]; topics?: unknown[] }; brand?: { name?: string; website?: string }; pagination?: { has_more?: boolean } };
 };
 
 type Profile = {
@@ -84,12 +84,27 @@ function rewardMarkup(reward: NonNullable<ToolResult["structuredContent"]>["rewa
   return `<article class="reward-card"><img class="reward-icon" src="${escapeHtml(boxLogoUrl)}" alt="PayBox" /><div><div class="reward-label">${escapeHtml(label)}</div><div class="reward-amount">${escapeHtml(reward.balance ?? 0)} <span>${escapeHtml(reward.unit || "Box")}</span></div>${earned}<div class="reward-title">${escapeHtml(reward.title || "PayMoment Box")}</div></div></article>`;
 }
 
+function actionMarkup(action: NonNullable<ToolResult["structuredContent"]>["action"]) {
+  return `<article class="card"><div class="card-head"><img class="avatar" src="${escapeHtml(boxLogoUrl)}" alt="PayBox" /><div class="name">${escapeHtml(action?.title || "PayMoment update")}</div></div><pre class="body">${escapeHtml(JSON.stringify(action?.data ?? {}, null, 2))}</pre></article>`;
+}
+
+function searchMarkup(results: NonNullable<ToolResult["structuredContent"]>["results"], website?: string) {
+  if (!results) return `<div class="empty">No results found.</div>`;
+  const sections = [
+    ...(results.people?.length ? [`<section class="card"><div class="card-head"><div class="handle">People</div></div><pre class="body">${escapeHtml(JSON.stringify(results.people, null, 2))}</pre></section>`] : []),
+    ...(results.moments?.length ? results.moments.map((card) => cardMarkup(card, website)) : []),
+    ...(results.articles?.length ? results.articles.map((card) => cardMarkup(card, website)) : []),
+    ...(results.topics?.length ? [`<section class="card"><div class="card-head"><div class="handle">Hashtags</div></div><pre class="body">${escapeHtml(JSON.stringify(results.topics, null, 2))}</pre></section>`] : []),
+  ];
+  return sections.length ? sections.join("") : `<div class="empty">No results found.</div>`;
+}
+
 function render(result?: ToolResult) {
   const data = result?.structuredContent;
   const profile = data?.profile ?? (data?.type === "paymoment.profile" ? data.card as Profile | undefined : undefined);
   const cards = data?.cards ?? (data?.card ? [data.card] : []);
-  const content = profile ? profileMarkup(profile, data?.brand?.website) : data?.reward ? rewardMarkup(data.reward) : cards.length ? cards.map((card) => cardMarkup(card, data?.brand?.website)).join("") : `<div class="empty">No Moments to show yet.</div>`;
-  const heading = profile ? "Profile" : data?.reward ? "Box" : "Social";
+  const content = profile ? profileMarkup(profile, data?.brand?.website) : data?.reward ? rewardMarkup(data.reward) : data?.action ? actionMarkup(data.action) : data?.type === "paymoment.search" ? searchMarkup(data.results, data?.brand?.website) : cards.length ? cards.map((card) => cardMarkup(card, data?.brand?.website)).join("") : `<div class="empty">No Moments to show yet.</div>`;
+  const heading = profile ? "Profile" : data?.reward ? "Box" : data?.action ? "Update" : data?.type === "paymoment.search" ? "Search" : "Social";
   root.innerHTML = `${styles()}<section class="shell"><header class="header"><img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="PayMoment" /><span class="eyebrow">${heading}</span></header><div class="toolbar">${profile || data?.reward ? "" : `<button class="button primary" data-refresh>Refresh Moments</button>`}<span class="status" role="status"></span></div><div class="cards">${content}</div></section>`;
   root.querySelectorAll<HTMLElement>(".avatar, .profile-avatar").forEach((element) => {
     if (element.tagName === "IMG") {

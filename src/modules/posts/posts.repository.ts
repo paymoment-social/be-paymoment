@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../../db/client";
 import {
   articles,
@@ -147,7 +147,7 @@ export async function hydratePost(id: string, viewerId: string, includeQuote = t
     media,
     counts: { likes: post.likeCount, replies: post.replyCount, reposts: post.repostCount, bookmarks: post.bookmarkCount, views: post.viewCount },
     viewer: { liked: stateRows[0].length > 0, bookmarked: stateRows[1].length > 0, reposted: stateRows[2].length > 0, reward_claimed: rewardRows.length > 0 },
-    article: article ? { title: article.title, eyebrow: article.eyebrow, description: article.description, content_html: article.contentHtml, banner_media_id: article.bannerMediaId, banner_color: article.bannerColor, banner_position: article.bannerPosition, status: article.status, draft_version: article.draftVersion, published_at: article.publishedAt?.toISOString() ?? null } : null,
+    article: article ? { title: article.title, eyebrow: article.eyebrow, description: article.description, content_html: article.contentHtml, banner_media_id: article.bannerMediaId, banner_color: article.bannerColor, banner_position: article.bannerPosition, status: article.status, draft_version: article.draftVersion, scheduled_at: article.scheduledAt?.toISOString() ?? null, published_at: article.publishedAt?.toISOString() ?? null } : null,
     poll: poll ? { question: poll.question, status: poll.status, voter_visibility: poll.voterVisibility, allow_vote_change: poll.allowVoteChange, total_votes: poll.totalVotes, ends_at: poll.endsAt?.toISOString() ?? null, viewer_option_id: voteRows[0]?.optionId ?? null, options: optionRows.map((option) => ({ id: option.id, label: option.label, position: option.position, vote_count: option.voteCount })) } : null,
     quoted_post: includeQuote && post.quotedPostId ? await hydratePost(post.quotedPostId, viewerId, false) : null,
     created_at: post.createdAt.toISOString(),
@@ -293,6 +293,13 @@ export async function listUserPosts(authorId: string, viewerId: string, limit: n
   };
 }
 
+export async function listArticleDrafts(authorId: string, limit = 50) {
+  const rows = await getDb().select({ id: posts.id }).from(posts).innerJoin(articles, eq(articles.postId, posts.id)).where(and(
+    eq(posts.authorId, authorId), eq(posts.kind, "article"), eq(posts.status, "draft"), eq(articles.status, "draft"), isNull(posts.deletedAt),
+  )).orderBy(desc(posts.updatedAt), desc(posts.id)).limit(limit);
+  return Promise.all(rows.map((row) => hydratePost(row.id, authorId))).then((values) => values.filter(Boolean));
+}
+
 export async function setPostPinned(authorId: string, postId: string, pinned: boolean) {
   return getDb().transaction(async (tx) => {
     const [owned] = await tx.select({ id: posts.id }).from(posts).where(and(eq(posts.id, postId), eq(posts.authorId, authorId), eq(posts.status, "published"), isNull(posts.deletedAt))).limit(1);
@@ -368,11 +375,13 @@ export async function createArticle(authorId: string, input: CreateArticleInput)
     const cleanHtml = sanitizeArticleHtml(input.content_html);
     const contentText = articlePlainText(cleanHtml);
     if (!contentText) throw new AppError(422, "VALIDATION_ERROR", "Article content cannot be empty after sanitization.", { content_html: "Add readable article content." });
-    const published = input.publish;
+    const published = input.publish && !input.scheduled_at;
+    const scheduledAt = input.scheduled_at ? new Date(input.scheduled_at) : null;
+    if (scheduledAt && scheduledAt <= new Date()) throw new AppError(422, "VALIDATION_ERROR", "The scheduled time must be in the future.", { scheduled_at: "Choose a future date and time." });
     const [post] = await tx.insert(posts).values({ authorId, kind: "article", body: input.description, visibility: input.visibility, status: published ? "published" : "draft", publishedAt: published ? new Date() : null }).returning();
     if (!post) throw new Error("Unable to create the article.");
     if (input.banner_media_id) await attachPostMedia(tx, authorId, post.id, [input.banner_media_id], "article");
-    await tx.insert(articles).values({ postId: post.id, title: input.title, eyebrow: input.eyebrow, description: input.description, contentHtml: cleanHtml, contentText, bannerMediaId: input.banner_media_id, bannerColor: input.banner_color, bannerPosition: input.banner_position, status: published ? "published" : "draft", publishedAt: published ? new Date() : null });
+    await tx.insert(articles).values({ postId: post.id, title: input.title, eyebrow: input.eyebrow, description: input.description, contentHtml: cleanHtml, contentText, bannerMediaId: input.banner_media_id, bannerColor: input.banner_color, bannerPosition: input.banner_position, status: published ? "published" : "draft", scheduledAt, publishedAt: published ? new Date() : null });
     await syncTokens(tx, post.id, `${input.title} ${input.description} ${contentText}`);
     return post;
   });
@@ -401,6 +410,7 @@ export async function updateArticle(authorId: string, postId: string, input: Upd
       ...(input.banner_media_id !== undefined ? { bannerMediaId: input.banner_media_id } : {}),
       ...(input.banner_color !== undefined ? { bannerColor: input.banner_color } : {}),
       ...(input.banner_position !== undefined ? { bannerPosition: input.banner_position } : {}),
+      ...(input.scheduled_at !== undefined ? { scheduledAt: input.scheduled_at ? new Date(input.scheduled_at) : null, status: "draft" as const, publishedAt: null } : {}),
       draftVersion: sql`${articles.draftVersion} + 1`, updatedAt: new Date(),
     }).where(and(eq(articles.postId, postId), eq(articles.draftVersion, input.draft_version))).returning();
     if (!updated) return "version_conflict" as const;
@@ -417,6 +427,19 @@ export async function publishArticle(authorId: string, postId: string) {
     if (!post) throw new AppError(403, "FORBIDDEN", "Only the article author can publish it.");
     return post;
   });
+}
+
+export async function publishScheduledArticles(now = new Date(), limit = 20) {
+  const rows = await getDb().select({ postId: articles.postId }).from(articles).where(and(eq(articles.status, "draft"), lte(articles.scheduledAt, now))).orderBy(articles.scheduledAt).limit(limit);
+  if (!rows.length) return 0;
+  const publishedAt = new Date();
+  await getDb().transaction(async (tx) => {
+    for (const row of rows) {
+      await tx.update(articles).set({ status: "published", scheduledAt: null, publishedAt, draftVersion: sql`${articles.draftVersion} + 1`, updatedAt: publishedAt }).where(and(eq(articles.postId, row.postId), eq(articles.status, "draft")));
+      await tx.update(posts).set({ status: "published", publishedAt, updatedAt: publishedAt }).where(and(eq(posts.id, row.postId), eq(posts.status, "draft")));
+    }
+  });
+  return rows.length;
 }
 
 export async function createReply(authorId: string, postId: string, input: CreateReplyInput, actorType: "human" | "mcp_agent" = "human") {
