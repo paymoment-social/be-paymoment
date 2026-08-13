@@ -25,6 +25,7 @@ function inMemoryIdempotencyRedis(): IdempotencyRedis {
 describe("Redis foundation", () => {
   test("builds namespaced and normalized keys", () => {
     expect(redisKeys.presence("USER/One")).toBe("paymoment:presence:user%2Fone");
+    expect(redisKeys.oauthAuthorizationRequest("Request_One")).toBe("paymoment:oauth:authorization-request:request_one");
     expect(redisKeys.websocketChannel("A B")).toBe("paymoment:ws:user:a%20b");
     expect(redisKeys.websocketBroadcastChannel()).toBe("paymoment:ws:broadcast");
   });

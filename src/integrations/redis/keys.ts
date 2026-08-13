@@ -9,6 +9,7 @@ export const redisKeys = {
   rateLimit: (scope: string, identity: string, window: string) => `${prefix}:rate:${segment(scope)}:${segment(identity)}:${window}`,
   session: (tokenHash: string) => `${prefix}:session:${segment(tokenHash)}`,
   oauthState: (state: string) => `${prefix}:oauth:state:${segment(state)}`,
+  oauthAuthorizationRequest: (requestId: string) => `${prefix}:oauth:authorization-request:${segment(requestId)}`,
   presence: (userId: string) => `${prefix}:presence:${segment(userId)}`,
   typing: (conversationId: string, userId: string) => `${prefix}:typing:${segment(conversationId)}:${segment(userId)}`,
   trending: (window: string) => `${prefix}:trending:${segment(window)}`,

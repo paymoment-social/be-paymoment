@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { hashPrivateValue } from "../auth/session";
-import { mcpRedirectUriSchema, oauthIpIdentity } from "./mcp.oauth";
+import { connectionDurationSchema, connectionExpiry, mcpRedirectUriSchema, oauthIpIdentity } from "./mcp.oauth";
 
 describe("MCP OAuth rate-limit identity", () => {
   test("uses the proxy-appended final forwarding hop", async () => {
@@ -19,5 +19,18 @@ describe("MCP OAuth redirect URI validation", () => {
     expect(mcpRedirectUriSchema.safeParse("http://127.0.0.1:45678/callback").success).toBeTrue();
     expect(mcpRedirectUriSchema.safeParse("http://localhost:45678/callback").success).toBeTrue();
     expect(mcpRedirectUriSchema.safeParse("http://example.com/callback").success).toBeFalse();
+  });
+});
+
+describe("MCP connection expiration", () => {
+  test("accepts only supported connection durations", () => {
+    for (const duration of ["never", 1, 7, 30, 90]) expect(connectionDurationSchema.safeParse(duration).success).toBeTrue();
+    expect(connectionDurationSchema.safeParse(365).success).toBeFalse();
+  });
+
+  test("calculates an absolute expiration date", () => {
+    const now = new Date("2026-08-13T00:00:00.000Z");
+    expect(connectionExpiry(7, now)?.toISOString()).toBe("2026-08-20T00:00:00.000Z");
+    expect(connectionExpiry("never", now)).toBeNull();
   });
 });

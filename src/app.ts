@@ -42,7 +42,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.use("/mcp/*", mcpCors);
   app.get("/health", (c) => success(c, { ok: true, service: "paymoment-api", runtime: "bun" }));
   app.get("/.well-known/oauth-protected-resource/mcp", (c) => c.json({ resource: `${config().mcpIssuerUrl.replace(/\/$/, "")}/mcp`, authorization_servers: [`${config().mcpIssuerUrl.replace(/\/$/, "")}/oauth`] }));
-  app.get("/.well-known/oauth-authorization-server", (c) => { const issuer = `${config().mcpIssuerUrl.replace(/\/$/, "")}/oauth`; return c.json({ issuer, authorization_endpoint: `${issuer}/authorize`, token_endpoint: `${issuer}/token`, revocation_endpoint: `${issuer}/revoke`, registration_endpoint: `${issuer}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: ["paymoment.read", "paymoment.write"] }); });
+  app.get("/.well-known/oauth-authorization-server", (c) => { const issuer = `${config().mcpIssuerUrl.replace(/\/$/, "")}/oauth`; return c.json({ issuer, authorization_endpoint: `${issuer}/authorize`, token_endpoint: `${issuer}/token`, revocation_endpoint: `${issuer}/revoke`, registration_endpoint: `${issuer}/register`, response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"], code_challenge_methods_supported: ["S256"], token_endpoint_auth_methods_supported: ["none"], scopes_supported: ["paymoment.read", "paymoment.write"], resource_indicators_supported: true }); });
   app.get("/ready", async (c) => {
     const result = await readiness();
     if (!result.ok) {

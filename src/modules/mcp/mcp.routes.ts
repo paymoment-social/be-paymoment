@@ -258,7 +258,7 @@ mcpRoutes.all("/", async (c) => {
   } catch (error) {
     if (error instanceof AppError && error.status === 401) {
       const issuer = config().mcpIssuerUrl.replace(/\/$/, "");
-      c.header("WWW-Authenticate", `Bearer realm="mcp", resource_metadata="${issuer}/.well-known/oauth-protected-resource/mcp", scope="paymoment.read paymoment.write"`);
+      c.header("WWW-Authenticate", `Bearer realm="mcp", error="invalid_token", error_description="The access token is missing, invalid, or expired. Reconnect PayMoment to continue.", resource_metadata="${issuer}/.well-known/oauth-protected-resource/mcp", scope="paymoment.read paymoment.write"`);
     }
     throw error;
   }

@@ -269,7 +269,7 @@ export const mcpRefreshTokens = pgTable("mcp_refresh_tokens", {
   tokenHash: varchar("token_hash", { length: 128 }).notNull(),
   accessTokenId: uuid("access_token_id").notNull().references(() => mcpAccessTokens.id, { onDelete: "cascade" }),
   familyId: uuid("family_id").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   rotatedAt: timestamp("rotated_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -280,6 +280,7 @@ export const mcpConsents = pgTable("mcp_consents", {
   clientId: uuid("client_id").notNull().references(() => mcpClients.id, { onDelete: "cascade" }),
   scopes: jsonb("scopes").$type<string[]>().default([]).notNull(),
   grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [primaryKey({ columns: [table.userId, table.clientId] })]);

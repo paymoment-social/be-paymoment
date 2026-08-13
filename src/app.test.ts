@@ -46,6 +46,8 @@ describe("PayMoment API foundation", () => {
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain('resource_metadata="http://localhost:8787/.well-known/oauth-protected-resource/mcp"');
     expect(response.headers.get("www-authenticate")).toContain('scope="paymoment.read paymoment.write"');
+    expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    expect(response.headers.get("www-authenticate")).toContain("Reconnect PayMoment to continue");
   });
 
   test("publishes complete remote MCP OAuth discovery metadata", async () => {

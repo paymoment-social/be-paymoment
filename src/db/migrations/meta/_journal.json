@@ -99,6 +99,13 @@
       "when": 1786345200000,
       "tag": "0013_schedule_articles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786388400000,
+      "tag": "0014_mcp_connection_expiry",
+      "breakpoints": true
     }
   ]
 }
