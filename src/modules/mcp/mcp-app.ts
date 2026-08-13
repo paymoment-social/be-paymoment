@@ -32,7 +32,7 @@ type Profile = {
   entitlement?: { verified?: boolean; points_balance?: number };
 };
 
-const app = new App({ name: "PayMoment Social", version: "1.0.0" });
+const app = new App({ name: "PayMoment Social", version: "1.1.0" });
 const root = document.querySelector<HTMLElement>("#app")!;
 
 const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
